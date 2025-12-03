@@ -1,0 +1,7 @@
+/.wwebjs_auth
+/.wwebjs_cache
+/chat.db
+/chat.db-shm
+/chat.db-wal
+/node_modules
+/package-lock.json
