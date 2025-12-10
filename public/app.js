@@ -133,12 +133,21 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAvatarFromStorage();
     
     // Avatar clicável na tela de LOGIN
-    if (loginAvatar && loginAvatarInput) {
-        loginAvatar.addEventListener('click', () => loginAvatarInput.click());
+    // Usando <label for="..."> no HTML, não precisa de event listener de click
+    // Apenas adicionar listener de change no input
+    if (loginAvatarInput) {
         loginAvatarInput.addEventListener('change', (e) => {
             const file = e.target.files && e.target.files[0];
-            handleLoginAvatarSelect(file);
+            if (file) {
+                console.log('📸 Arquivo selecionado (login):', file.name, file.size, 'bytes');
+                handleLoginAvatarSelect(file);
+            }
+            // Reset input para permitir selecionar o mesmo arquivo novamente
+            e.target.value = '';
         });
+        console.log('✅ Event listener do avatar de login configurado');
+    } else {
+        console.warn('⚠️ Input do avatar de login não encontrado');
     }
     
     // Atualizar inicial do avatar quando digita o nome
@@ -161,29 +170,22 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Color extraction failed:', err);
     }
 
-    // Avatar clicável - tornar a foto do usuário clicável para mudar avatar (na tela de chat)
-    if (currentUserAvatar && avatarInput) {
-        // Clique na foto abre seletor de arquivo
-        currentUserAvatar.addEventListener('click', () => {
-            console.log('📸 Clicou na foto do avatar');
-            avatarInput.click();
-        });
-        currentUserAvatar.addEventListener('mouseover', () => {
-            currentUserAvatar.style.opacity = '0.8';
-            currentUserAvatar.style.transform = 'scale(1.05)';
-            currentUserAvatar.style.cursor = 'pointer';
-        });
-        currentUserAvatar.addEventListener('mouseout', () => {
-            currentUserAvatar.style.opacity = '1';
-            currentUserAvatar.style.transform = 'scale(1)';
-        });
+    // Avatar clicável na tela de CHAT
+    // Usando <label for="..."> no HTML, não precisa de event listener de click
+    // Apenas adicionar listener de change no input
+    if (avatarInput) {
         avatarInput.addEventListener('change', (e) => {
             const file = e.target.files && e.target.files[0];
             if (file) {
-                console.log('📸 Arquivo selecionado:', file.name);
+                console.log('📸 Arquivo selecionado (chat):', file.name, file.size, 'bytes');
                 handleAvatarSelect(file);
             }
+            // Reset input para permitir selecionar o mesmo arquivo novamente
+            e.target.value = '';
         });
+        console.log('✅ Event listener do avatar de chat configurado');
+    } else {
+        console.warn('⚠️ Input do avatar de chat não encontrado');
     }
     
     // Manter compatibilidade com botão antigo
@@ -383,7 +385,7 @@ async function performLogin(username) {
 // Avatar handlers
 function handleAvatarSelect(file) {
     if (!file) return;
-    const maxSize = 500 * 1024; // 500KB
+    const maxSize = 1 * 1024 * 1024; // 500KB
     if (file.size > maxSize) {
         alert('Avatar muito grande. Máx 500KB.');
         return;
@@ -418,7 +420,7 @@ function handleAvatarSelect(file) {
 // Handler para avatar selecionado na tela de LOGIN
 function handleLoginAvatarSelect(file) {
     if (!file) return;
-    const maxSize = 500 * 1024; // 500KB
+    const maxSize = 1 * 1024 * 1024; // 500KB
     if (file.size > maxSize) {
         alert('Avatar muito grande. Máx 500KB.');
         return;
@@ -630,7 +632,7 @@ function connectToServer() {
         messagesContainer.innerHTML = '';
         
         // Mostrar mensagem do sistema
-        addSystemMessage(`💥 Chat limpo por ${data.by}`);
+        // addSystemMessage(`💥 Chat limpo por ${data.by}`);
     });
 
     // Server-side error handler for custom server errors
@@ -1948,10 +1950,10 @@ function handleAddCustomSticker() {
         const file = e.target.files[0];
         if (!file) return;
         
-        // Validar tamanho (500KB)
-        const maxSize = 500 * 1024;
+        // Validar tamanho (3MB)
+        const maxSize = 3 * 1024 * 1024;
         if (file.size > maxSize) {
-            alert('Figurinha muito grande! Tamanho máximo: 500KB');
+            alert('Figurinha muito grande! Tamanho máximo: 3MB');
             return;
         }
         
@@ -2117,6 +2119,159 @@ document.addEventListener('keydown', async (e) => {
     }
 });
 
+// ===== Sistema de Preview de Imagem (Estilo Discord) =====
+let pendingImageFile = null;
+let pendingImageBase64 = null;
+
+function showImagePreview(file, base64Data) {
+    pendingImageFile = file;
+    pendingImageBase64 = base64Data;
+    
+    // Remover preview anterior se existir
+    hideImagePreview();
+    
+    // Criar modal de preview
+    const previewModal = document.createElement('div');
+    previewModal.id = 'image-preview-modal';
+    previewModal.className = 'image-preview-modal';
+    
+    const fileSize = formatBytes(file.size);
+    const fileName = file.name || 'imagem.png';
+    
+    previewModal.innerHTML = `
+        <div class="image-preview-backdrop" onclick="hideImagePreview()"></div>
+        <div class="image-preview-container">
+            <div class="image-preview-header">
+                <div class="image-preview-title">
+                    <span class="image-preview-icon">🖼️</span>
+                    <span>Enviar Imagem</span>
+                </div>
+                <button class="image-preview-close" onclick="hideImagePreview()" title="Cancelar">✕</button>
+            </div>
+            <div class="image-preview-content">
+                <div class="image-preview-image-wrapper">
+                    <img src="${base64Data}" alt="Preview" class="image-preview-img">
+                </div>
+                <div class="image-preview-info">
+                    <div class="image-preview-filename">${escapeHtml(fileName)}</div>
+                    <div class="image-preview-filesize">${fileSize}</div>
+                </div>
+            </div>
+            <div class="image-preview-caption">
+                <input type="text" id="image-caption-input" placeholder="Adicionar legenda (opcional)..." maxlength="200">
+            </div>
+            <div class="image-preview-footer">
+                <button class="btn-preview-cancel" onclick="hideImagePreview()">
+                    <span>Cancelar</span>
+                </button>
+                <button class="btn-preview-send" onclick="confirmSendImage()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Enviar</span>
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(previewModal);
+    
+    // Animação de entrada
+    requestAnimationFrame(() => {
+        previewModal.classList.add('visible');
+    });
+    
+    // Focar no input de legenda
+    setTimeout(() => {
+        const captionInput = document.getElementById('image-caption-input');
+        if (captionInput) captionInput.focus();
+    }, 100);
+    
+    // Fechar com ESC
+    document.addEventListener('keydown', handlePreviewKeydown);
+}
+
+function handlePreviewKeydown(e) {
+    if (e.key === 'Escape') {
+        hideImagePreview();
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        confirmSendImage();
+    }
+}
+
+function hideImagePreview() {
+    const modal = document.getElementById('image-preview-modal');
+    if (modal) {
+        modal.classList.remove('visible');
+        setTimeout(() => modal.remove(), 200);
+    }
+    pendingImageFile = null;
+    pendingImageBase64 = null;
+    document.removeEventListener('keydown', handlePreviewKeydown);
+    
+    // Limpar input de imagem
+    if (imageInput) {
+        imageInput.value = '';
+    }
+}
+
+function confirmSendImage() {
+    if (!pendingImageBase64) {
+        hideImagePreview();
+        return;
+    }
+    
+    const captionInput = document.getElementById('image-caption-input');
+    const caption = captionInput ? captionInput.value.trim() : '';
+    
+    // Verificar tamanho para decidir método de envio
+    const socketLimit = 1 * 1024 * 1024;
+    
+    if (pendingImageFile && pendingImageFile.size > socketLimit) {
+        // Upload por chunks para imagens grandes
+        console.log('[image] Large image, using chunk upload');
+        uploadFileInChunks(pendingImageFile);
+        
+        // Se tem legenda, enviar como mensagem separada
+        if (caption) {
+            setTimeout(() => {
+                socket.emit('message:send', { text: caption });
+            }, 500);
+        }
+    } else {
+        // Envio direto via socket para imagens pequenas
+        try {
+            // Deduplicate check
+            if (!window._lastBase64SendTime) window._lastBase64SendTime = 0;
+            if (!window._lastBase64SendKey) window._lastBase64SendKey = null;
+            const now = Date.now();
+            const debounce = 800;
+            const payload = pendingImageBase64.split(',')[1] || pendingImageBase64;
+            const key = `${payload.length}:${payload.substr(0, 32)}:${payload.substr(payload.length - 32, 32)}`;
+            
+            if (!(window._lastBase64SendKey === key && (now - window._lastBase64SendTime) < debounce)) {
+                window._lastBase64SendTime = now;
+                window._lastBase64SendKey = key;
+                
+                console.log('[image] Sending image via socket, size=', pendingImageBase64.length);
+                socket.emit('message:send', { text: `IMAGE:${pendingImageBase64}` });
+                
+                // Enviar legenda como mensagem separada se existir
+                if (caption) {
+                    setTimeout(() => {
+                        socket.emit('message:send', { text: caption });
+                    }, 100);
+                }
+            }
+        } catch (e) {
+            console.error('[image] Error sending:', e);
+        }
+    }
+    
+    hideImagePreview();
+}
+
 function processImageFile(file) {
     // Validar tipo
     if (!file.type.startsWith('image/')) {
@@ -2124,9 +2279,6 @@ function processImageFile(file) {
         return;
     }
     
-    // Limite de tamanho para envio direto via socket: 500KB
-    // Acima disso, usar sistema de upload por chunks
-    const socketLimit = 500 * 1024; // 500KB
     const maxSize = 10 * 1024 * 1024; // 10MB max total
     
     if (file.size > maxSize) {
@@ -2134,46 +2286,11 @@ function processImageFile(file) {
         return;
     }
     
-    // Se imagem for maior que 500KB, usar sistema de upload em chunks
-    if (file.size > socketLimit) {
-        console.log('[image] Large image detected, using chunk upload system');
-        uploadFileInChunks(file);
-        return;
-    }
-    
-    // Converter para base64 (apenas para imagens pequenas)
+    // Ler a imagem e mostrar preview
     const reader = new FileReader();
     reader.onload = (event) => {
         const base64Image = event.target.result;
-        // Deduplicate: do not send same base64 twice within debounce window
-        try {
-            if (!window._lastBase64SendTime) window._lastBase64SendTime = 0;
-            if (!window._lastBase64SendKey) window._lastBase64SendKey = null;
-            const now = Date.now();
-            const debounce = 800; // ms
-            // compute a short key from base64 for dedupe: length + first/last 32 chars
-            const payload = base64Image.split(',')[1] || base64Image;
-            const key = `${payload.length}:${payload.substr(0, 32)}:${payload.substr(payload.length - 32, 32)}`;
-            if (window._lastBase64SendKey === key && (now - window._lastBase64SendTime) < debounce) {
-                console.log('Duplicate image send detected, skipping');
-                return;
-            }
-            window._lastBase64SendTime = now;
-            window._lastBase64SendKey = key;
-        } catch (e) {
-            // ignore window storage issues
-        }
-
-        // Enviar imagem
-        try {
-            console.log('[image] sending small image via socket, size=', base64Image.length);
-        } catch (e) {}
-        socket.emit('message:send', { text: `IMAGE:${base64Image}` });
-        
-        // Limpar input
-        if (imageInput) {
-            imageInput.value = '';
-        }
+        showImagePreview(file, base64Image);
     };
     
     reader.onerror = () => {
@@ -2549,20 +2666,115 @@ async function uploadChunk(file, sessionId, chunkIndex, totalChunks, statusMsgId
     });
 }
 
-// Função para baixar arquivo com nome original
+// ===== Download Progress Indicator =====
+function showDownloadProgress(fileName) {
+    // Remover qualquer indicador anterior
+    hideDownloadProgress();
+    
+    const progressDiv = document.createElement('div');
+    progressDiv.id = 'download-progress';
+    progressDiv.className = 'download-progress';
+    progressDiv.innerHTML = `
+        <div class="download-progress-title">
+            <span class="download-spinner"></span>
+            <span class="download-filename">${escapeHtml(fileName)}</span>
+        </div>
+        <div class="download-progress-bar-container">
+            <div class="download-progress-bar"></div>
+        </div>
+        <div class="download-progress-text">
+            <span class="download-percent">Preparando...</span>
+            <span class="download-size"></span>
+        </div>
+    `;
+    document.body.appendChild(progressDiv);
+    
+    // Animação de entrada
+    requestAnimationFrame(() => {
+        progressDiv.classList.add('visible');
+    });
+    
+    return progressDiv;
+}
+
+function updateDownloadProgress(percent, downloadedBytes, totalBytes) {
+    const progressDiv = document.getElementById('download-progress');
+    if (!progressDiv) return;
+    
+    const bar = progressDiv.querySelector('.download-progress-bar');
+    const percentText = progressDiv.querySelector('.download-percent');
+    const sizeText = progressDiv.querySelector('.download-size');
+    
+    if (bar) bar.style.width = `${percent}%`;
+    if (percentText) percentText.textContent = `${Math.round(percent)}%`;
+    if (sizeText) {
+        sizeText.textContent = `${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)}`;
+    }
+}
+
+function hideDownloadProgress(success = true) {
+    const progressDiv = document.getElementById('download-progress');
+    if (progressDiv) {
+        if (success) {
+            // Mostrar mensagem de sucesso brevemente
+            const title = progressDiv.querySelector('.download-progress-title');
+            if (title) {
+                title.innerHTML = `<span style="color: #10b981;">✅</span> Download concluído!`;
+            }
+            setTimeout(() => {
+                progressDiv.classList.remove('visible');
+                setTimeout(() => progressDiv.remove(), 300);
+            }, 1000);
+        } else {
+            progressDiv.classList.remove('visible');
+            setTimeout(() => progressDiv.remove(), 300);
+        }
+    }
+}
+
+// Função para baixar arquivo com nome original e feedback visual
 function downloadFileWithName(fileUrl, fileName) {
-    // Usar fetch para obter o blob e forçar o nome correto no download
-    fetch(`${fileUrl}?filename=${encodeURIComponent(fileName)}`)
-        .then(response => {
-            if (!response.ok) throw new Error('Erro ao baixar arquivo');
-            return response.blob();
-        })
-        .then(blob => {
+    // Mostrar indicador de progresso
+    showDownloadProgress(fileName);
+    
+    // Usando XMLHttpRequest para obter progresso do download
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', `${fileUrl}?filename=${encodeURIComponent(fileName)}`, true);
+    xhr.responseType = 'blob';
+    
+    let startTime = Date.now();
+    
+    xhr.onprogress = (event) => {
+        if (event.lengthComputable) {
+            const percent = (event.loaded / event.total) * 100;
+            updateDownloadProgress(percent, event.loaded, event.total);
+        } else {
+            // Se não souber o tamanho total, mostrar bytes baixados
+            const progressDiv = document.getElementById('download-progress');
+            if (progressDiv) {
+                const percentText = progressDiv.querySelector('.download-percent');
+                const sizeText = progressDiv.querySelector('.download-size');
+                if (percentText) percentText.textContent = 'Baixando...';
+                if (sizeText) sizeText.textContent = formatBytes(event.loaded);
+                
+                // Animar a barra indeterminada
+                const bar = progressDiv.querySelector('.download-progress-bar');
+                if (bar) {
+                    bar.style.width = '100%';
+                    bar.classList.add('indeterminate');
+                }
+            }
+        }
+    };
+    
+    xhr.onload = () => {
+        if (xhr.status === 200) {
+            const blob = xhr.response;
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.style.display = 'none';
             a.href = url;
-            a.download = fileName; // Nome original do arquivo
+            a.download = fileName;
             document.body.appendChild(a);
             a.click();
             
@@ -2571,12 +2783,29 @@ function downloadFileWithName(fileUrl, fileName) {
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
             }, 100);
-        })
-        .catch(err => {
-            console.error('Erro ao baixar arquivo:', err);
+            
+            // Atualizar para 100% e esconder
+            updateDownloadProgress(100, 1, 1);
+            hideDownloadProgress(true);
+            
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(`✅ Download concluído: ${fileName} em ${duration}s`);
+        } else {
+            console.error('Erro ao baixar arquivo:', xhr.status);
+            hideDownloadProgress(false);
             // Fallback: abrir em nova aba
             window.open(fileUrl, '_blank');
-        });
+        }
+    };
+    
+    xhr.onerror = () => {
+        console.error('Erro de rede ao baixar arquivo');
+        hideDownloadProgress(false);
+        // Fallback: abrir em nova aba
+        window.open(fileUrl, '_blank');
+    };
+    
+    xhr.send();
 }
 
 function formatBytes(bytes) {

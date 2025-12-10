@@ -25,11 +25,11 @@
             <form id="login-form" class="login-form">
                 <!-- Preview do avatar na tela de login -->
                 <div class="login-avatar-preview" id="login-avatar-container">
-                    <div class="login-avatar" id="login-avatar" title="Clique para escolher foto">
+                    <label for="login-avatar-input" class="login-avatar" id="login-avatar" title="Clique para escolher foto" style="cursor: pointer;">
                         <span id="login-avatar-initial">?</span>
-                    </div>
+                    </label>
                     <input type="file" id="login-avatar-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;" />
-                    <span class="login-avatar-label">Clique para escolher foto</span>
+                    <label for="login-avatar-input" class="login-avatar-label" style="cursor: pointer;">Clique para escolher foto</label>
                 </div>
                 
                 <div class="input-group">
@@ -73,10 +73,10 @@
                 
                 <div class="sidebar-footer">
                     <div class="current-user">
-                        <div class="user-avatar" id="current-user-avatar" title="Clique para mudar avatar" style="cursor: pointer; transition: all 0.2s ease;">
+                        <label for="avatar-input" class="user-avatar" id="current-user-avatar" title="Clique para mudar avatar" style="cursor: pointer; transition: all 0.2s ease;">
                             <span id="current-user-initial">U</span>
-                        </div>
-                        <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+                        </label>
+                        <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;" />
                         <div class="user-info">
                             <span id="current-username" class="username">Usuário</span>
                             <span class="status">Online</span>
@@ -385,6 +385,7 @@
     <!-- Scripts -->
     <script src="/socket.io/socket.io.js"></script>
     <script src="commands.js?v=2"></script>
+    <script src="avatar-preview.js?v=1"></script>
     <script src="app.js?v=5"></script>
 </body>
 </html>
