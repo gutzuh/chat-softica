@@ -57,14 +57,14 @@ app.use('/uploads/images/', (req, res, next) => {
 app.use('/uploads/files/', (req, res, next) => {
   const filename = path.basename(req.path);
   const ext = path.extname(filename).toLowerCase();
-  
+
   // Usar nome original se fornecido no query param, senão usar nome do servidor
   const originalFilename = req.query.filename || filename;
   const displayFilename = decodeURIComponent(originalFilename);
-  
+
   // Tipos que devem ser exibidos inline (não downloaded)
   const inlineTypes = ['.mp4', '.webm', '.avi', '.mov', '.mkv', '.mp3', '.wav', '.pdf', '.txt'];
-  
+
   if (inlineTypes.includes(ext)) {
     // Permitir visualização inline
     res.setHeader('Content-Disposition', `inline; filename="${displayFilename}"`);
@@ -72,7 +72,7 @@ app.use('/uploads/files/', (req, res, next) => {
     // Forçar download para outros tipos com nome original
     res.setHeader('Content-Disposition', `attachment; filename="${displayFilename}"`);
   }
-  
+
   // Adicionar MIME types corretos para vídeos
   const mimeTypes = {
     '.mp4': 'video/mp4',
@@ -84,11 +84,11 @@ app.use('/uploads/files/', (req, res, next) => {
     '.wav': 'audio/wav',
     '.pdf': 'application/pdf'
   };
-  
+
   if (mimeTypes[ext]) {
     res.setHeader('Content-Type', mimeTypes[ext]);
   }
-  
+
   res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache por 1 dia
   next();
 });
@@ -123,15 +123,15 @@ function verifyToken(token) {
 app.post('/api/auth/login', (req, res) => {
   try {
     const { username, avatar } = req.body;
-    
+
     if (!username || username.length < 2) {
       return res.status(400).json({ error: 'Nome de usuário inválido' });
     }
-    
+
     const token = generateToken({ username, avatar });
-    
+
     // console.log(`🔐 Token gerado para ${username}`);
-    
+
     res.json({
       success: true,
       token,
@@ -151,25 +151,25 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/auth/verify', (req, res) => {
   try {
     const { token } = req.body;
-    
+
     if (!token) {
       return res.status(400).json({ valid: false, error: 'Token não fornecido' });
     }
-    
+
     const decoded = verifyToken(token);
-    
+
     if (!decoded) {
       return res.status(401).json({ valid: false, error: 'Token inválido ou expirado' });
     }
-    
+
     // Renovar token (gerar novo com dados atuais)
     const newToken = generateToken({
       username: decoded.username,
       avatar: decoded.avatar
     });
-    
+
     // // console.log(`🔄 Token renovado para ${decoded.username}`);
-    
+
     res.json({
       valid: true,
       token: newToken, // Token renovado
@@ -189,25 +189,25 @@ app.post('/api/auth/verify', (req, res) => {
 app.post('/api/auth/update', (req, res) => {
   try {
     const { token, username, avatar } = req.body;
-    
+
     if (!token) {
       return res.status(400).json({ error: 'Token não fornecido' });
     }
-    
+
     const decoded = verifyToken(token);
-    
+
     if (!decoded) {
       return res.status(401).json({ error: 'Token inválido ou expirado' });
     }
-    
+
     // Gerar novo token com dados atualizados
     const newToken = generateToken({
       username: username || decoded.username,
       avatar: avatar !== undefined ? avatar : decoded.avatar
     });
-    
+
     // // console.log(`📝 Dados atualizados para ${username || decoded.username}`);
-    
+
     res.json({
       success: true,
       token: newToken,
@@ -226,33 +226,33 @@ app.post('/api/auth/update', (req, res) => {
 app.post('/api/admin/clear-database', (req, res) => {
   try {
     const { token, confirmPhrase } = req.body;
-    
+
     // Verificar token
     if (!token) {
       return res.status(401).json({ error: 'Token não fornecido' });
     }
-    
+
     const decoded = verifyToken(token);
     if (!decoded) {
       return res.status(401).json({ error: 'Token inválido' });
     }
-    
+
     // Verificar frase de confirmação
     if (confirmPhrase !== 'LIMPAR TUDO') {
-      return res.status(400).json({ error: 'Frase de confirmação incorreta' }); 
+      return res.status(400).json({ error: 'Frase de confirmação incorreta' });
     }
-    
+
     // Limpar banco de dados
     database.clearAllMessages();
-    
+
     // Limpar array de mensagens em memória
     messages = [];
-    
+
     // Notificar todos os clientes
     io.emit('chat:cleared', { by: decoded.username, timestamp: new Date() });
-    
+
     // // console.log(`🗑️ Banco de dados limpo por ${decoded.username}`);
-    
+
     res.json({ success: true, message: 'Banco de dados limpo com sucesso' });
   } catch (error) {
     console.error('Erro ao limpar banco:', error);
@@ -274,24 +274,24 @@ const lastMessageBySocket = new Map();
 app.post('/api/upload/init', async (req, res) => {
   try {
     const { filename, totalChunks, filesize, userId, username } = req.body;
-    
+
     if (!filename || !totalChunks || !filesize) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    
+
     // Validar tamanho (1GB max)
     const MAX_FILESIZE = 1024 * 1024 * 1024; // 1GB
     if (filesize > MAX_FILESIZE) {
       return res.status(400).json({ error: 'File too large (max 1GB)' });
     }
-    
+
     // Gerar sessionId único
     const sessionId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Preparar diretórios
     await fs.mkdir(TEMP_UPLOADS_DIR, { recursive: true });
     await fs.mkdir(UPLOADS_DIR, { recursive: true });
-    
+
     // Registrar sessão
     uploadSessions.set(sessionId, {
       filename: path.basename(filename), // sanitize filename
@@ -303,9 +303,9 @@ app.post('/api/upload/init', async (req, res) => {
       username,
       startTime: Date.now()
     });
-    
+
     // console.log(`[upload] initialized session ${sessionId} for ${filename} (${totalChunks} chunks, ${filesize} bytes)`);
-    
+
     res.json({ sessionId });
   } catch (error) {
     console.error('Upload init error:', error);
@@ -317,16 +317,16 @@ app.post('/api/upload/init', async (req, res) => {
 app.post('/api/upload/chunk', async (req, res) => {
   try {
     const { sessionId, chunkIndex } = req.body;
-    
+
     if (!sessionId || chunkIndex === undefined) {
       return res.status(400).json({ error: 'Missing sessionId or chunkIndex' });
     }
-    
+
     const session = uploadSessions.get(sessionId);
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
-    
+
     // Obter chunk data (pode vir como buffer ou base64)
     let chunkData = req.body.chunk;
     if (typeof chunkData === 'string') {
@@ -337,19 +337,19 @@ app.post('/api/upload/chunk', async (req, res) => {
     } else {
       return res.status(400).json({ error: 'Invalid chunk data format' });
     }
-    
+
     // Salvar chunk temporário
     const tempFilePath = path.join(TEMP_UPLOADS_DIR, `${sessionId}_${chunkIndex}`);
     await fs.writeFile(tempFilePath, chunkData);
-    
+
     session.chunks.add(chunkIndex);
     session.uploadedBytes += chunkData.length;
-    
+
     const progress = Math.round((session.chunks.size / session.totalChunks) * 100);
     // console.log(`[upload] ${sessionId} chunk ${chunkIndex} received (${progress}% complete)`);
-    
-    res.json({ 
-      received: true, 
+
+    res.json({
+      received: true,
       progress,
       uploadedBytes: session.uploadedBytes,
       totalBytes: session.filesize
@@ -364,60 +364,60 @@ app.post('/api/upload/chunk', async (req, res) => {
 app.post('/api/upload/complete', async (req, res) => {
   try {
     const { sessionId } = req.body;
-    
+
     if (!sessionId) {
       return res.status(400).json({ error: 'Missing sessionId' });
     }
-    
+
     const session = uploadSessions.get(sessionId);
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
-    
+
     // Verificar se todos os chunks foram recebidos
     if (session.chunks.size !== session.totalChunks) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Not all chunks received',
         received: session.chunks.size,
         expected: session.totalChunks
       });
     }
-    
+
     // Juntar chunks na ordem
     const ext = path.extname(session.filename);
     const timestamp = Date.now();
     const finalFilename = `file_${timestamp}${ext}`;
     const finalPath = path.join(UPLOADS_DIR, finalFilename);
-    
+
     // Stream de escrita
     const writeStream = fsSync.createWriteStream(finalPath);
-    
+
     for (let i = 0; i < session.totalChunks; i++) {
       const chunkPath = path.join(TEMP_UPLOADS_DIR, `${sessionId}_${i}`);
       const data = await fs.readFile(chunkPath);
       writeStream.write(data);
       // Deletar chunk temporário
-      await fs.unlink(chunkPath).catch(() => {});
+      await fs.unlink(chunkPath).catch(() => { });
     }
-    
+
     // IMPORTANTE: Fechar o stream antes de aguardar finish
     writeStream.end();
-    
+
     await new Promise((resolve, reject) => {
       writeStream.on('finish', resolve);
       writeStream.on('error', reject);
     });
-    
+
     // Calcular URL final
     const fileUrl = `/uploads/files/${finalFilename}`;
     const uploadTime = Date.now() - session.startTime;
-    
+
     // console.log(`[upload] ${sessionId} completed: ${finalFilename} (${session.filesize} bytes, ${uploadTime}ms)`);
-    
+
     // Limpar sessão
     uploadSessions.delete(sessionId);
-    
-    res.json({ 
+
+    res.json({
       success: true,
       filename: session.filename,
       url: fileUrl,
@@ -431,73 +431,30 @@ app.post('/api/upload/complete', async (req, res) => {
 
 // ===== Funções de persistência
 async function loadMessages() {
-  try {
-    const data = await fs.readFile(MESSAGES_FILE, 'utf8');
-    messages = JSON.parse(data);
-    // console.log(`📚 Carregadas ${messages.length} mensagens do histórico`);
-    // Migrate any existing base64 images stored as `IMAGE:` in message.text to disk-backed URLs
-    const uploadsDir = path.join(__dirname, 'public', 'uploads', 'images');
-    await fs.mkdir(uploadsDir, { recursive: true });
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg && typeof msg.text === 'string' && msg.text.startsWith('IMAGE:')) {
-        try {
-          const payloadOnly = msg.text.split('IMAGE:')[1].replace(/\s+/g, '');
-          const base64Payload = payloadOnly.split(',').pop();
-          const buffer = Buffer.from(base64Payload, 'base64');
-          const mimeMatch = msg.text.match(/data:image\/(\w+)/);
-          const ext = mimeMatch ? mimeMatch[1] : 'png';
-          const filename = `migrated_${Date.now()}_${i}.${ext}`;
-          const destPath = path.join(uploadsDir, filename);
-          await fs.writeFile(destPath, buffer);
-          msg.text = `IMAGE_URL:/uploads/images/${filename}`;
-        } catch (err) {
-          console.warn('Failed to migrate message image:', err);
-          // Replace the content with a placeholder to avoid large JSON
-          msg.text = '[Image removed due to migration error]';
-        }
-      }
-    }
-    // Trim messages to last 1000 to avoid huge message.json files
-    const MAX_PERSISTED_MESSAGES = 1000;
-    if (messages.length > MAX_PERSISTED_MESSAGES) {
-      messages = messages.slice(-MAX_PERSISTED_MESSAGES);
-      // console.log(`📚 Reduzido histórico para ${messages.length} mensagens para evitar arquivos muito grandes`);
-    }
-    
-    // Migrar para SQLite se houver mensagens e USE_DATABASE está ativo
-    if (USE_DATABASE && messages.length > 0) {
-      const dbMessages = database.getAllMessages();
-      if (dbMessages.length === 0) {
-        // console.log('🔄 Migrando mensagens do JSON para SQLite...');
-        database.migrateFromJson(messages);
-      }
-    }
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      // console.log('📝 Nenhum histórico encontrado, iniciando com chat vazio');
-      messages = [];
-    } else {
-      console.error('Erro ao carregar mensagens:', error);
-      messages = [];
-    }
-  }
-  
-  // Se usar banco, carregar do SQLite
   if (USE_DATABASE) {
-    messages = database.getAllMessages();
-    // console.log(`🗄️ ${messages.length} mensagens carregadas do SQLite`);
+    try {
+      messages = database.getAllMessages();
+      console.log(`🗄️ ${messages.length} mensagens carregadas do SQLite`);
+    } catch (e) {
+      console.error('Erro ao carregar do SQLite:', e);
+      messages = [];
+    }
+  } else {
+    // Fallback para arquivo JSON
+    try {
+      const data = await fs.readFile(MESSAGES_FILE, 'utf8');
+      messages = JSON.parse(data);
+    } catch (e) {
+      messages = [];
+    }
   }
 }
 
 async function saveMessages() {
-  if (USE_DATABASE) {
-    // Não precisa salvar no JSON, já está no SQLite
-    return;
-  }
+  if (USE_DATABASE) return;
+
   try {
     await fs.writeFile(MESSAGES_FILE, JSON.stringify(messages, null, 2), 'utf8');
-    // console.log(`💾 ${messages.length} mensagens salvas`);
   } catch (error) {
     console.error('Erro ao salvar mensagens:', error);
   }
@@ -510,7 +467,7 @@ function isAdmin(username) {
 
 // Carregar mensagens ao iniciar
 loadMessages();
- 
+
 // ===== WhatsApp Integration - DISABLED =====
 // Desabilitado devido a problemas com whatsapp-web.js e puppeteer
 // A biblioteca tenta manter uma sessão Chromium aberta que causa erros de fechamento
@@ -575,7 +532,7 @@ io.on('connection', (socket) => {
   // Evento: Enviar mensagem para todos
   socket.on('message:send', async (data) => {
     const user = users.get(socket.id);
-    
+
     if (user) {
       // Handle IMAGE:base64 payload specially to avoid storing huge base64 in messages array
       try {
@@ -659,13 +616,13 @@ io.on('connection', (socket) => {
       saveMessages();
 
       // Broadcast da mensagem para todos
-        io.emit('message:received', message);
-        // Debug log: show first 40 chars to help detect duplicate receives
-        if (message.text && message.text.startsWith('IMAGE:')) {
-          // console.log(`IMAGE message received from ${user.username} (${socket.id}) size=${message.text.length}`);
-        } else {
-          // console.log(`message received from ${user.username} (${socket.id}): ${message.text ? message.text.substr(0, 40) : ''}`);
-        }
+      io.emit('message:received', message);
+      // Debug log: show first 40 chars to help detect duplicate receives
+      if (message.text && message.text.startsWith('IMAGE:')) {
+        // console.log(`IMAGE message received from ${user.username} (${socket.id}) size=${message.text.length}`);
+      } else {
+        // console.log(`message received from ${user.username} (${socket.id}): ${message.text ? message.text.substr(0, 40) : ''}`);
+      }
       // console.log(`Mensagem de ${user.username}: ${data.text}`);
     }
   });
@@ -673,28 +630,28 @@ io.on('connection', (socket) => {
   // Evento: Editar mensagem
   socket.on('message:edit', (data) => {
     const user = users.get(socket.id);
-    
+
     if (user) {
       const { messageId, newText } = data;
-      
+
       // Encontrar a mensagem
       const message = messages.find(m => m.id === messageId);
-      
+
       if (message && message.username === user.username) {
         // Apenas o autor pode editar
         message.text = newText;
         message.edited = true;
         message.editedAt = new Date();
-        
+
         // Salvar e notificar
         saveMessages();
-        
+
         io.emit('message:edited', {
           messageId: messageId,
           newText: newText,
           editedAt: message.editedAt
         });
-        
+
         // console.log(`✏️ Mensagem ${messageId} editada por ${user.username}`);
       } else {
         socket.emit('server:error', { message: 'Você só pode editar suas próprias mensagens' });
@@ -705,20 +662,20 @@ io.on('connection', (socket) => {
   // Evento: Limpar chat (apenas admin)
   socket.on('chat:clear', () => {
     const user = users.get(socket.id);
-    
+
     if (user && user.isAdmin) {
       // Limpa todas as mensagens
       messages = [];
-      
+
       // Salva arquivo vazio
       saveMessages();
-      
+
       // Notifica todos que o chat foi limpo
       io.emit('chat:cleared', {
         by: user.username,
         timestamp: new Date()
       });
-      
+
       // console.log(`💥 Chat limpo por ${user.username}`);
     } else {
       socket.emit('server:error', { message: 'Apenas administradores podem limpar o chat' });
@@ -728,7 +685,7 @@ io.on('connection', (socket) => {
   // Evento: Enviar mensagem privada
   socket.on('message:private', (data) => {
     const sender = users.get(socket.id);
-    
+
     if (sender) {
       const message = {
         id: Date.now(),
@@ -741,10 +698,10 @@ io.on('connection', (socket) => {
 
       // Envia para o destinatário
       io.to(data.recipientId).emit('message:received', message);
-      
+
       // Envia de volta para o remetente (para mostrar na interface)
       socket.emit('message:received', message);
-      
+
       // console.log(`Mensagem privada de ${sender.username} para ${data.recipientId}`);
     }
   });
@@ -778,7 +735,7 @@ io.on('connection', (socket) => {
   socket.on('counter:create', (data) => {
     const user = users.get(socket.id);
     if (!user) return;
-    
+
     const counter = {
       id: `counter_${Date.now()}`,
       name: data.name,
@@ -786,7 +743,7 @@ io.on('connection', (socket) => {
       color: data.color || '#667eea',
       createdBy: user.username
     };
-    
+
     if (database.createCounter(counter)) {
       // Broadcast para todos os usuários
       io.emit('counter:created', counter);
@@ -798,7 +755,7 @@ io.on('connection', (socket) => {
   socket.on('counter:update', (data) => {
     const user = users.get(socket.id);
     if (!user) return;
-    
+
     const counter = database.getCounter(data.id);
     if (counter) {
       const newValue = counter.value + data.amount;
@@ -818,7 +775,7 @@ io.on('connection', (socket) => {
   socket.on('counter:reset', (data) => {
     const user = users.get(socket.id);
     if (!user) return;
-    
+
     const counter = database.getCounter(data.id);
     if (counter) {
       if (database.updateCounterValue(data.id, 0)) {
@@ -836,7 +793,7 @@ io.on('connection', (socket) => {
   socket.on('counter:rename', (data) => {
     const user = users.get(socket.id);
     if (!user) return;
-    
+
     if (database.updateCounterName(data.id, data.name)) {
       io.emit('counter:renamed', {
         id: data.id,
@@ -851,7 +808,7 @@ io.on('connection', (socket) => {
   socket.on('counter:delete', (data) => {
     const user = users.get(socket.id);
     if (!user) return;
-    
+
     const counter = database.getCounter(data.id);
     if (counter) {
       if (database.deleteCounter(data.id)) {
@@ -864,7 +821,7 @@ io.on('connection', (socket) => {
   // Evento: Desconexão
   socket.on('disconnect', () => {
     const user = users.get(socket.id);
-    
+
     if (user) {
       // Remove usuário da lista
       users.delete(socket.id);
@@ -930,30 +887,30 @@ app.get('/api/emojis', (req, res) => {
   if (!emojiData) {
     return res.json({ error: 'Emoji data not available' });
   }
-  
+
   const category = req.query.category;
   const search = req.query.search?.toLowerCase();
   const limit = parseInt(req.query.limit) || 100;
-  
+
   let filtered = emojiData.filter(e => e.has_img_apple);
-  
+
   if (category) {
     filtered = filtered.filter(e => e.category === category);
   }
-  
+
   if (search) {
-    filtered = filtered.filter(e => 
-      e.short_name.includes(search) || 
+    filtered = filtered.filter(e =>
+      e.short_name.includes(search) ||
       e.short_names.some(n => n.includes(search)) ||
       (e.name && e.name.toLowerCase().includes(search))
     );
   }
-  
+
   // Ordenar e limitar
   filtered = filtered
     .sort((a, b) => a.sort_order - b.sort_order)
     .slice(0, limit);
-  
+
   // Retornar dados simplificados
   const result = filtered.map(e => ({
     unified: e.unified,
@@ -963,7 +920,7 @@ app.get('/api/emojis', (req, res) => {
     sheet_x: e.sheet_x,
     sheet_y: e.sheet_y
   }));
-  
+
   res.json(result);
 });
 
@@ -971,7 +928,7 @@ app.get('/api/emojis/categories', (req, res) => {
   if (!emojiData) {
     return res.json({ error: 'Emoji data not available' });
   }
-  
+
   const categories = [...new Set(emojiData.filter(e => e.has_img_apple).map(e => e.category))];
   res.json(categories);
 });
@@ -984,7 +941,7 @@ app.use((req, res, next) => {
 
 // Rota catch-all para retornar JSON em vez de HTML
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     error: 'Not Found',
     path: req.path,
     method: req.method,
@@ -994,7 +951,7 @@ app.use((req, res) => {
 
 // Iniciar servidor
 const PORT = process.env.PORT || 6767;
-server.listen(PORT, () => { 
+server.listen(PORT, () => {
 });
 
 // Global error handlers to prevent unhandled exceptions from taking down the server

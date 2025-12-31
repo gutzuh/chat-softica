@@ -19,6 +19,40 @@ const THEME_KEY = 'chatTheme';
 let replyingTo = null;
 let editingMessage = null;
 
+// ===== Emoji Parser (Global Scope) =====
+let emojiMap = null;
+
+// Ensure functions are available globally
+window.parseEmojis = parseEmojis;
+window.initEmojiParser = initEmojiParser;
+
+async function initEmojiParser() {
+    try {
+        const response = await fetch('/emoji-map.json');
+        emojiMap = await response.json();
+        console.log('🍎 Mapeamento de Emojis iOS carregado:', Object.keys(emojiMap).length);
+
+        // Disparar evento de emojis prontos
+        const event = new Event('emojisReady');
+        window.dispatchEvent(event);
+    } catch (e) {
+        console.error('Falha ao carregar mapa de emojis:', e);
+    }
+}
+
+function parseEmojis(text) {
+    if (!emojiMap || !text) return text;
+
+    // Substituição simples baseada em regex de unicode emoji
+    const updated = text.replace(/(\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u200d)+/gu, (match) => {
+        if (emojiMap[match]) {
+            return `<img src="/emojis/${emojiMap[match]}" class="emoji-ios" alt="${match}" draggable="false">`;
+        }
+        return match;
+    });
+    return updated;
+}
+
 // ===== Elementos do DOM =====
 const loginScreen = document.getElementById('login-screen');
 const chatScreen = document.getElementById('chat-screen');
@@ -65,32 +99,35 @@ const loginAvatarInput = document.getElementById('login-avatar-input');
 document.addEventListener('DOMContentLoaded', () => {
     // Carregar tema salvo
     loadSavedTheme();
-    
+
     // Carregar dados de comandos
     Commands.loadCommandsData();
-    
+
     // Iniciar sistema de alertas de eventos
     Commands.startEventAlerts();
-    
+
+    // Inicializar parser de emojis
+    initEmojiParser();
+
     // Verificar se usuário está logado no localStorage
     checkAndAutoLogin();
-    
+
     // Event Listeners
     loginForm.addEventListener('submit', handleLogin);
     messageForm.addEventListener('submit', handleSendMessage);
     logoutBtn.addEventListener('click', handleLogout);
     messageInput.addEventListener('input', handleTyping);
-    
+
     // Botão de tema
     if (themeBtn) {
         themeBtn.addEventListener('click', openThemeModal);
     }
-    
+
     // Botão de limpar banco (só para admin)
     if (clearDbBtn) {
         clearDbBtn.addEventListener('click', handleClearDatabase);
     }
-    
+
     messageInput.addEventListener('keydown', (e) => {
         // Enter para enviar (sem Shift)
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -105,33 +142,36 @@ document.addEventListener('DOMContentLoaded', () => {
     imageInput.addEventListener('change', handleImageSelect);
     fileBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', handleFileSelect);
-    
+
     // Tabs de figurinhas
     stickerTabs.forEach(tab => {
         tab.addEventListener('click', () => switchStickerCategory(tab.dataset.category));
     });
-    
+
     // Inicializar figurinhas
     initializeStickers();
-    
+
     // Clipboard paste para imagens
     document.addEventListener('paste', handlePaste);
-    
+
     // Addons
     addonsBtn.addEventListener('click', toggleAddonsPanel);
     closeAddonsBtn.addEventListener('click', toggleAddonsPanel);
     newCounterBtn.addEventListener('click', openNewCounterModal);
-    
+
     // Inicializar contadores
-    loadCounters();
-    renderCounters();
-    
-    // Foco no input de username
-    usernameInput.focus();
-    
+    // Inicializar contadores será feito após conexão do socket
+
     // Carregar avatar salvo de logins anteriores
     loadAvatarFromStorage();
-    
+
+    // Inicializar parser de emojis
+    initEmojiParser();
+
+
+    // Carregar avatar salvo de logins anteriores
+    loadAvatarFromStorage();
+
     // Avatar clicável na tela de LOGIN
     // Usando <label for="..."> no HTML, não precisa de event listener de click
     // Apenas adicionar listener de change no input
@@ -149,7 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         console.warn('⚠️ Input do avatar de login não encontrado');
     }
-    
+
     // Atualizar inicial do avatar quando digita o nome
     if (usernameInput && loginAvatarInitial) {
         usernameInput.addEventListener('input', (e) => {
@@ -161,7 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    
+
     // Try to extract theme colors from logo.png (if present)
     try {
         extractColorsFromLogo();
@@ -187,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         console.warn('⚠️ Input do avatar de chat não encontrado');
     }
-    
+
     // Manter compatibilidade com botão antigo
     if (changeAvatarBtn && avatarInput) {
         changeAvatarBtn.addEventListener('click', () => avatarInput.click());
@@ -205,13 +245,13 @@ async function loginWithToken(username, avatar) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, avatar })
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success && data.token) {
             authToken = data.token;
             localStorage.setItem(TOKEN_KEY, authToken);
-            
+
             console.log(`🔐 Token gerado para ${username}`);
             return true;
         }
@@ -225,19 +265,19 @@ async function loginWithToken(username, avatar) {
 // Atualizar token quando avatar muda
 async function updateTokenWithNewAvatar(avatar) {
     if (!authToken) return;
-    
+
     try {
         const response = await fetch('/api/auth/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                token: authToken, 
-                avatar 
+            body: JSON.stringify({
+                token: authToken,
+                avatar
             })
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success && data.token) {
             authToken = data.token;
             localStorage.setItem(TOKEN_KEY, authToken);
@@ -268,17 +308,17 @@ function loadAvatarFromStorage() {
 function checkAndAutoLogin() {
     const savedUser = localStorage.getItem(USER_STORAGE_KEY);
     const savedAvatar = localStorage.getItem(AVATAR_STORAGE_KEY);
-    
+
     if (savedUser && savedUser.length >= 2) {
         console.log(`🔐 Usuário encontrado no localStorage: ${savedUser}`);
         currentUser = savedUser;
         currentAvatar = savedAvatar;
-        
+
         // Carregar avatar na tela de login
         if (savedAvatar) {
             updateLoginAvatarUI(savedAvatar);
         }
-        
+
         // Auto-login
         performLogin(savedUser);
     }
@@ -287,14 +327,14 @@ function checkAndAutoLogin() {
 // ===== Funções de Login =====
 function handleLogin(e) {
     e.preventDefault();
-    
+
     const username = usernameInput.value.trim();
-    
+
     if (username.length < 2) {
         alert('Nome de usuário deve ter pelo menos 2 caracteres');
         return;
     }
-    
+
     performLogin(username);
 }
 
@@ -303,7 +343,7 @@ function performLogin(username) {
     if (!username || username.length < 2) return;
 
     currentUser = username;
-    
+
     // Salvar no localStorage
     localStorage.setItem(USER_STORAGE_KEY, username);
     if (currentAvatar) {
@@ -322,13 +362,13 @@ function performLogin(username) {
     if (currentAvatar) {
         updateCurrentAvatarUI(currentAvatar);
     }
-    
+
     // Mostrar botão de limpar BD apenas para admin
     const clearDbBtn = document.getElementById('clear-db-btn');
     if (clearDbBtn) {
         clearDbBtn.style.display = (username.toLowerCase() === 'admin') ? 'flex' : 'none';
     }
-    
+
     console.log(`✅ Login realizado: ${username}`);
     console.log(`📸 Avatar: ${currentAvatar ? 'Sim' : 'Não'}`);
 
@@ -360,18 +400,18 @@ async function performLogin(username) {
     // Atualizar UI - Nome do usuário
     currentUsername.textContent = username;
     currentUserInitial.textContent = username.charAt(0).toUpperCase();
-    
+
     // Atualizar UI - Avatar (garantir que apareça após login)
     if (currentAvatar) {
         updateCurrentAvatarUI(currentAvatar);
     }
-    
+
     // Mostrar botão de limpar BD apenas para admin
     const clearDbBtn = document.getElementById('clear-db-btn');
     if (clearDbBtn) {
         clearDbBtn.style.display = (username.toLowerCase() === 'admin') ? 'flex' : 'none';
     }
-    
+
     console.log(`✅ Login realizado: ${username}, avatar: ${currentAvatar ? 'sim' : 'não'}`);
 
     // Trocar telas
@@ -394,24 +434,24 @@ function handleAvatarSelect(file) {
     const reader = new FileReader();
     reader.onload = async (ev) => {
         const data = ev.target.result;
-        
+
         // Salvar no localStorage com a chave correta
-        try { 
+        try {
             localStorage.setItem(AVATAR_STORAGE_KEY, data);
             console.log('✅ Avatar salvo no localStorage');
-        } catch (e) { 
+        } catch (e) {
             console.warn('Erro ao salvar avatar:', e);
         }
-        
+
         currentAvatar = data;
         updateCurrentAvatarUI(data);
         updateLoginAvatarUI(data);
-        
+
         // Notificar servidor do novo avatar
         if (socket && socket.connected && currentUser) {
             socket.emit('user:login', { username: currentUser, avatar: currentAvatar });
         }
-        
+
         console.log('✅ Avatar atualizado e sincronizado');
     };
     reader.readAsDataURL(file);
@@ -429,15 +469,15 @@ function handleLoginAvatarSelect(file) {
     const reader = new FileReader();
     reader.onload = (ev) => {
         const data = ev.target.result;
-        
+
         // Salvar no localStorage com a chave correta
-        try { 
+        try {
             localStorage.setItem(AVATAR_STORAGE_KEY, data);
             console.log('✅ Avatar salvo no localStorage');
-        } catch (e) { 
+        } catch (e) {
             console.warn('Erro ao salvar avatar:', e);
         }
-        
+
         currentAvatar = data;
         updateLoginAvatarUI(data);
         updateCurrentAvatarUI(data); // Sincronizar com tela de chat
@@ -467,7 +507,7 @@ function updateLoginAvatarUI(dataUrl) {
     const initialEl = document.getElementById('login-avatar-initial');
     const labelEl = document.querySelector('.login-avatar-label');
     if (!avatarEl) return;
-    
+
     if (dataUrl) {
         avatarEl.style.backgroundImage = `url(${dataUrl})`;
         avatarEl.style.backgroundSize = 'cover';
@@ -486,7 +526,7 @@ function handleLogout() {
         if (socket) {
             socket.disconnect();
         }
-        
+
         // Resetar estado
         currentUser = null;
         users = [];
@@ -495,7 +535,7 @@ function handleLogout() {
         // Limpar dados de login (mas MANTER o avatar para próximo login)
         localStorage.removeItem(USER_STORAGE_KEY);
         // Avatar permanece no localStorage
-        
+
         // Limpar mensagens
         messagesContainer.innerHTML = `
             <div class="welcome-message">
@@ -504,21 +544,21 @@ function handleLogout() {
                 <p>Comece a conversar com seus colegas de trabalho</p>
             </div>
         `;
-        
+
         // Esconder botão de limpar BD
         const clearDbBtn = document.getElementById('clear-db-btn');
         if (clearDbBtn) {
             clearDbBtn.style.display = 'none';
         }
-        
+
         // Trocar telas
         chatScreen.classList.remove('active');
         loginScreen.classList.add('active');
-        
+
         // Limpar input de username mas manter avatar carregado
         usernameInput.value = '';
         usernameInput.focus();
-        
+
         console.log('❌ Logout realizado - Avatar mantido para próximo login');
     }
 }
@@ -533,7 +573,7 @@ function extractColorsFromLogo() {
     // Only proceed if image actually loads
     if (!img.complete) {
         img.onload = () => computeAndApply(img);
-        img.onerror = () => {/* ignore */};
+        img.onerror = () => {/* ignore */ };
     } else {
         computeAndApply(img);
     }
@@ -579,28 +619,34 @@ function extractColorsFromLogo() {
 function connectToServer() {
     // Conectar ao servidor Socket.io
     socket = io();
-    
+
     // Event: Conexão estabelecida
     socket.on('connect', () => {
         console.log('Conectado ao servidor');
         updateConnectionStatus(true);
-        
+
         // Fazer login
         socket.emit('user:login', { username: currentUser, avatar: currentAvatar });
+
+        // Inicializar listeners de contadores e carregar dados
+        if (typeof setupCounterListeners === 'function') {
+            setupCounterListeners();
+        }
+        socket.emit('counters:get');
     });
-    
+
     // Event: Desconexão
     socket.on('disconnect', () => {
         console.log('Desconectado do servidor');
         updateConnectionStatus(false);
     });
-    
+
     // Event: Lista de usuários
     socket.on('users:list', (usersList) => {
         users = usersList;
         renderUsersList();
     });
-    
+
     // Event: Histórico de mensagens
     socket.on('messages:history', (history) => {
         // Limpar mensagem de boas-vindas
@@ -608,16 +654,16 @@ function connectToServer() {
         if (welcomeMsg) {
             welcomeMsg.remove();
         }
-        
+
         // Adicionar mensagens do histórico
         history.forEach(msg => addMessage(msg, false));
         scrollToBottom();
     });
-    
+
     // Event: Status de admin
     socket.on('user:admin-status', (data) => {
         isAdmin = data.isAdmin;
-        
+
         // Mostrar/ocultar botão de limpar chat
         if (isAdmin) {
             clearChatBtn.style.display = 'flex';
@@ -625,12 +671,12 @@ function connectToServer() {
             clearChatBtn.style.display = 'none';
         }
     });
-    
+
     // Event: Chat foi limpo
     socket.on('chat:cleared', (data) => {
         // Limpar todas as mensagens
         messagesContainer.innerHTML = '';
-        
+
         // Mostrar mensagem do sistema
         // addSystemMessage(`💥 Chat limpo por ${data.by}`);
     });
@@ -644,7 +690,7 @@ function connectToServer() {
             alert('Imagem rejeitada pelo servidor: tamanho excedido.');
         }
     });
-    
+
     // Event: Novo usuário entrou
     socket.on('user:joined', (data) => {
         // Adicionar à lista se não for o próprio usuário
@@ -657,29 +703,29 @@ function connectToServer() {
                 joinedAt: data.timestamp
             });
             renderUsersList();
-            
+
             // Mostrar mensagem do sistema
             const adminBadge = data.isAdmin ? ' 👑' : '';
             addSystemMessage(`${data.username}${adminBadge} entrou no chat`);
-            
+
             // Notificação desktop
             showNotification('Novo usuário', `${data.username} entrou no chat`, '👋');
         }
     });
-    
+
     // Event: Usuário saiu
     socket.on('user:left', (data) => {
         // Remover da lista
         users = users.filter(u => u.id !== data.id);
         renderUsersList();
-        
+
         // Mostrar mensagem do sistema
         addSystemMessage(`${data.username} saiu do chat`);
-        
+
         // Notificação desktop
         showNotification('Usuário saiu', `${data.username} saiu do chat`, '👋');
     });
-    
+
     // Event: Mensagem recebida
     socket.on('message:received', (message) => {
         // Log para arquivos
@@ -689,9 +735,9 @@ function connectToServer() {
         } else if (message.file) {
             console.log(`📎 Arquivo (novo formato) recebido de ${message.username}: ${message.file.name}`);
         }
-        
+
         addMessage(message);
-        
+
         // Notificação apenas para mensagens de outros usuários
         const savedUsername = localStorage.getItem('chat-username');
         if (message.username !== savedUsername) {
@@ -704,17 +750,20 @@ function connectToServer() {
             );
         }
     });
-    
+
     // Event: Mensagem editada
     socket.on('message:edited', (data) => {
         const messageEl = document.querySelector(`[data-message-id="${data.messageId}"]`);
         if (messageEl) {
             const textEl = messageEl.querySelector('.message-text');
             if (textEl) {
-                // Processar menções no texto editado
-                let processedText = escapeHtml(data.newText);
-                processedText = processedText.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
-                textEl.innerHTML = processedText;
+                if (textEl) {
+                    // Processar menções e EMOJIS no texto editado
+                    let processedText = escapeHtml(data.newText);
+                    processedText = processedText.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
+                    processedText = parseEmojis(processedText); // Aplica emojis
+                    textEl.innerHTML = processedText;
+                }
             }
             // Adicionar badge de editado
             const timeEl = messageEl.querySelector('.message-time');
@@ -723,17 +772,17 @@ function connectToServer() {
             }
         }
     });
-    
+
     // Event: Usuário digitando
     socket.on('user:typing', (data) => {
         typingIndicator.textContent = `${data.username} está digitando...`;
     });
-    
+
     // Event: Usuário parou de digitar
     socket.on('user:stop-typing', () => {
         typingIndicator.textContent = '';
     });
- 
+
 
     // Event: WhatsApp QR Code
     socket.on('whatsapp:qr', (url) => {
@@ -778,13 +827,13 @@ function updateConnectionStatus(connected) {
 // ===== Funções de Mensagens =====
 function handleSendMessage(e) {
     e.preventDefault();
-    
+
     const text = messageInput.value.trim();
-    
+
     if (text.length === 0) {
         return;
     }
-    
+
     // Se estiver editando, emitir edição
     if (editingMessage) {
         socket.emit('message:edit', {
@@ -796,28 +845,28 @@ function handleSendMessage(e) {
         socket.emit('user:stop-typing');
         return;
     }
-    
+
     // Verificar se é um comando
     if (text.startsWith('/')) {
         const result = Commands.processCommand(text, socket);
-        
+
         if (result) {
             if (result.type === 'system') {
                 addSystemMessage(result.text);
             } else if (result.type === 'embed') {
                 addEmbedMessage(result.embed, socket.id);
             }
-            
+
             messageInput.value = '';
             socket.emit('user:stop-typing');
             typingIndicator.textContent = '';
             return;
         }
     }
-    
+
     // Preparar dados da mensagem
     const messageData = { text };
-    
+
     // Se estiver respondendo, incluir referência
     if (replyingTo) {
         // console.log('🔵 [REPLY] Enviando com reply ATIVO:', { id: replyingTo.id, username: replyingTo.username });
@@ -827,19 +876,19 @@ function handleSendMessage(e) {
             text: replyingTo.text.substring(0, 100)
         };
     }
-    
+
     // Enviar mensagem
     console.log('📤 [SEND] Enviando messageData:', messageData);
     socket.emit('message:send', messageData);
-    
+
     // Cancelar reply DEPOIS de enviar
     if (replyingTo) {
         cancelReply();
     }
-    
+
     // Limpar input
     messageInput.value = '';
-    
+
     // Notificar que parou de digitar
     socket.emit('user:stop-typing');
     typingIndicator.textContent = '';
@@ -859,15 +908,15 @@ function handleTyping() {
     } else {
         hideCommandSuggestions();
     }
-    
+
     // Notificar que está digitando
     socket.emit('user:typing');
-    
+
     // Limpar timeout anterior
     if (typingTimeout) {
         clearTimeout(typingTimeout);
     }
-    
+
     // Após 2 segundos sem digitar, notificar que parou
     typingTimeout = setTimeout(() => {
         socket.emit('user:stop-typing');
@@ -888,15 +937,15 @@ function showCommandSuggestions(text) {
             document.body.appendChild(suggestions);
         }
     }
-    
+
     // Usar função de autocomplete do Commands
     const filtered = Commands.getAutocompleteSuggestions ? Commands.getAutocompleteSuggestions(text) : [];
-    
+
     if (filtered.length === 0) {
         suggestions.style.display = 'none';
         return;
     }
-    
+
     suggestions.className = 'command-suggestions-panel';
     suggestions.innerHTML = filtered.map((item, idx) => `
         <div class="command-suggestion-item" onclick="document.getElementById('message-input').value = '${item.full}'; document.getElementById('message-input').focus(); hideCommandSuggestions();">
@@ -907,7 +956,7 @@ function showCommandSuggestions(text) {
             <span class="command-suggestion-enter">↵</span>
         </div>
     `).join('');
-    
+
     suggestions.style.display = 'block';
 }
 
@@ -924,27 +973,27 @@ function addMessage(message, autoScroll = true) {
     if (welcomeMsg) {
         welcomeMsg.remove();
     }
-    
+
     // Usar username como identificador persistente (não muda entre reconexões)
     const savedUsername = localStorage.getItem('chat-username');
     const isOwnMessage = message.username === savedUsername || message.userId === socket.id;
-    
+
     const messageEl = document.createElement('div');
-    messageEl.className = `message ${isOwnMessage ? 'own-message' : ''}`;
+    messageEl.className = `message`;
     messageEl.dataset.messageId = message.id;
     messageEl.dataset.username = message.username;
-    
+
     const time = formatTime(new Date(message.timestamp));
-    
+
     const adminBadge = users.find(u => u.id === message.userId)?.isAdmin ? ' 👑' : '';
-    
+
     // Verificar se é uma figurinha
     const isSticker = message.text.startsWith('STICKER:');
     const isCustomSticker = message.text.startsWith('STICKER_CUSTOM:');
     const isImage = message.text.startsWith('IMAGE:');
     const isImageUrl = message.text.startsWith('IMAGE_URL:');
     const isFile = message.text.startsWith('FILE:') || message.file;
-    
+
     let content;
     if (isSticker) {
         content = message.text.replace('STICKER:', '');
@@ -960,7 +1009,7 @@ function addMessage(message, autoScroll = true) {
     } else if (isFile) {
         // Suportar nova estrutura message.file e estrutura antiga FILE: prefix
         let fileUrl, fileName, fileSize;
-        
+
         if (message.file) {
             fileUrl = message.file.url;
             fileName = message.file.name;
@@ -971,7 +1020,7 @@ function addMessage(message, autoScroll = true) {
             fileName = fileParts[1] || 'arquivo';
             fileSize = fileParts[2] || 0;
         }
-        
+
         // Definir ícone baseado no tipo de arquivo
         let fileIcon = '📎';
         const ext = fileName.split('.').pop().toLowerCase();
@@ -987,7 +1036,7 @@ function addMessage(message, autoScroll = true) {
             'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️'
         };
         fileIcon = iconMap[ext] || '📎';
-        
+
         // Renderizar imagens inline como preview
         if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
             content = `
@@ -1017,7 +1066,7 @@ function addMessage(message, autoScroll = true) {
             else if (ext === 'avi') mimeType = 'video/x-msvideo';
             else if (ext === 'mov') mimeType = 'video/quicktime';
             else if (ext === 'mkv') mimeType = 'video/x-matroska';
-            
+
             content = `
                 <div class="file-preview-container">
                     <video 
@@ -1057,9 +1106,10 @@ function addMessage(message, autoScroll = true) {
         // Processar menções (@usuario)
         let processedText = escapeHtml(message.text);
         processedText = processedText.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
+        processedText = parseEmojis(processedText); // Parse emojis
         content = processedText;
     }
-    
+
     // Construir HTML de resposta se existir
     let replyHtml = '';
     if (message.replyTo) {
@@ -1078,13 +1128,13 @@ function addMessage(message, autoScroll = true) {
             </div>
         `;
     }
-    
+
     // Indicador de edição
     const editedBadge = message.edited ? '<span class="edited-badge">(editado)</span>' : '';
-    
+
     // Badge de resposta
     const replyBadge = message.replyTo ? `<span class="reply-badge" title="Respondendo a ${escapeHtml(message.replyTo.username)}">RESPOSTA</span>` : '';
-    
+
     // avatar: image if available, otherwise initial
     const avatarHtml = message.avatar ?
         `<div class="message-avatar" style="background-image:url(${message.avatar}); background-size:cover; background-position:center;"></div>` :
@@ -1104,9 +1154,9 @@ function addMessage(message, autoScroll = true) {
             </div>
         </div>
     `;
-    
+
     messagesContainer.appendChild(messageEl);
-    
+
     // Determinar se é vídeo (suportar ambas estruturas)
     let fileNameForVideo = '';
     if (message.file) {
@@ -1117,10 +1167,10 @@ function addMessage(message, autoScroll = true) {
     const isVideo = isFile && ['mp4', 'webm', 'avi', 'mov', 'mkv'].includes(
         fileNameForVideo.split('.').pop().toLowerCase()
     );
-    
+
     // Adicionar eventos de menu
     setupMessageMenu(messageEl, message, isImage, isImageUrl, isFile, isVideo);
-    
+
     // Scroll para o final (apenas se autoScroll estiver ativado)
     if (autoScroll) {
         scrollToBottom();
@@ -1134,23 +1184,23 @@ function addSystemMessage(text, id = null) {
     if (id) {
         messageEl.id = id;
     }
-    
+
     messagesContainer.appendChild(messageEl);
     scrollToBottom();
-    
+
     return messageEl;
 }
 
 function addEmbedMessage(embedHtml, userId = null) {
     const messageEl = document.createElement('div');
     messageEl.className = 'message';
-    
+
     const time = formatTime(new Date());
-    
+
     const avatarHtml = currentUsername ?
         `<div class="message-avatar">${currentUsername.charAt(0).toUpperCase()}</div>` :
         `<div class="message-avatar">📌</div>`;
-    
+
     messageEl.innerHTML = `
         ${avatarHtml}
         <div class="message-content">
@@ -1163,10 +1213,10 @@ function addEmbedMessage(embedHtml, userId = null) {
             </div>
         </div>
     `;
-    
+
     messagesContainer.appendChild(messageEl);
     scrollToBottom();
-    
+
     return messageEl;
 }
 
@@ -1190,13 +1240,13 @@ function setupMessageMenu(messageEl, message, isImage, isImageUrl, isFile, isVid
             showMessageMenu(rect.left, rect.bottom + 5, message, messageEl, isImage, isImageUrl, isFile, isVideo);
         });
     }
-    
+
     // Double-click para responder
     messageEl.addEventListener('dblclick', () => {
         console.log('📌 [DBLCLICK] Double-click para responder em:', message.username);
         setReplyingTo(message);
     });
-    
+
     // Também suportar clique direito
     messageEl.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -1208,11 +1258,11 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
     // Remover menu anterior se existir
     const existingMenu = document.querySelector('.message-context-menu');
     if (existingMenu) existingMenu.remove();
-    
+
     // Verificar se é mensagem própria
     const savedUsername = localStorage.getItem('chat-username');
     const isOwnMessage = message.username === savedUsername;
-    
+
     // Criar menu
     const menu = document.createElement('div');
     menu.className = 'message-context-menu';
@@ -1229,22 +1279,22 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
         overflow: hidden;
         animation: menuFadeIn 0.15s ease;
     `;
-    
+
     // Items do menu
     let menuHtml = '';
-    
+
     // Responder
     menuHtml += `<div class="menu-item" data-action="reply">
         <span class="menu-icon">↩️</span>
         <span>Responder</span>
     </div>`;
-    
+
     // Mencionar
     menuHtml += `<div class="menu-item" data-action="mention">
         <span class="menu-icon">@</span>
         <span>Mencionar ${message.username}</span>
     </div>`;
-    
+
     // Editar (só se for própria mensagem de texto)
     if (isOwnMessage && !isImage && !isImageUrl && !isFile) {
         menuHtml += `<div class="menu-item" data-action="edit">
@@ -1252,9 +1302,9 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
             <span>Editar</span>
         </div>`;
     }
-    
+
     menuHtml += `<div class="menu-separator"></div>`;
-    
+
     // Copiar texto
     if (!isImage && !isImageUrl && !isFile) {
         menuHtml += `<div class="menu-item" data-action="copy">
@@ -1262,7 +1312,7 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
             <span>Copiar texto</span>
         </div>`;
     }
-    
+
     // Para imagens
     if (isImage || isImageUrl) {
         menuHtml += `<div class="menu-item" data-action="save-image">
@@ -1270,7 +1320,7 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
             <span>Salvar imagem</span>
         </div>`;
     }
-    
+
     // Para arquivos
     if (isFile) {
         menuHtml += `<div class="menu-item" data-action="download">
@@ -1278,10 +1328,10 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
             <span>Download</span>
         </div>`;
     }
-    
+
     menu.innerHTML = menuHtml;
     document.body.appendChild(menu);
-    
+
     // Ajustar posição se sair da tela
     const rect = menu.getBoundingClientRect();
     if (rect.right > window.innerWidth) {
@@ -1290,7 +1340,7 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
     if (rect.bottom > window.innerHeight) {
         menu.style.top = (window.innerHeight - rect.height - 10) + 'px';
     }
-    
+
     // Event listeners para os items
     menu.querySelectorAll('.menu-item').forEach(item => {
         item.addEventListener('click', () => {
@@ -1299,7 +1349,7 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
             menu.remove();
         });
     });
-    
+
     // Fechar ao clicar fora
     setTimeout(() => {
         const closeHandler = (e) => {
@@ -1318,37 +1368,37 @@ function handleMenuAction(action, message, messageEl, isImage, isImageUrl, isFil
             // Permitir reply - se há um já em progresso, substitui automaticamente
             setReplyingTo(message);
             break;
-            
+
         case 'mention':
             messageInput.value += `@${message.username} `;
             messageInput.focus();
             break;
-            
+
         case 'edit':
             startEditingMessage(message, messageEl);
             break;
-            
+
         case 'copy':
             navigator.clipboard.writeText(message.text).then(() => {
                 showNotification('Sucesso', 'Texto copiado!', 'success');
             });
             break;
-            
+
         case 'save-image':
-            const imageUrl = isImageUrl 
-                ? message.text.replace('IMAGE_URL:', '') 
+            const imageUrl = isImageUrl
+                ? message.text.replace('IMAGE_URL:', '')
                 : message.text.replace('IMAGE:', '');
             const link = document.createElement('a');
             link.href = imageUrl;
             link.download = `imagem-${Date.now()}.png`;
             link.click();
             break;
-            
+
         case 'download':
             const fileParts = message.text.replace('FILE:', '').split('|');
             const fileUrl = fileParts[0];
             const fileName = fileParts[1] || 'arquivo';
-            
+
             // Fazer fetch com nome original como query param
             fetch(`${fileUrl}?filename=${encodeURIComponent(fileName)}`)
                 .then(response => response.blob())
@@ -1373,11 +1423,11 @@ function setReplyingTo(message) {
         // console.log('ℹ️  [REPLY] Já respondendo à mesma mensagem, ignorando');
         return;
     }
-    
+
     replyingTo = message;
     // console.log('🔵 [REPLY] setReplyingTo ATIVO para:', { id: replyingTo.id, username: replyingTo.username, text: replyingTo.text.substring(0, 30) });
     // console.trace('[REPLY] Stack trace - chamada de setReplyingTo');
-    
+
     // Mostrar preview de resposta
     let replyPreview = document.getElementById('reply-preview');
     if (!replyPreview) {
@@ -1387,11 +1437,11 @@ function setReplyingTo(message) {
         const inputWrapper = document.querySelector('.input-wrapper');
         inputWrapper.parentNode.insertBefore(replyPreview, inputWrapper);
     }
-    
-    const previewText = message.text.startsWith('IMAGE') || message.text.startsWith('FILE') 
-        ? '📎 Mídia' 
+
+    const previewText = message.text.startsWith('IMAGE') || message.text.startsWith('FILE')
+        ? '📎 Mídia'
         : message.text.substring(0, 50) + (message.text.length > 50 ? '...' : '');
-    
+
     replyPreview.innerHTML = `
         <div class="reply-preview-content">
             <span class="reply-preview-label">Respondendo a <strong>${escapeHtml(message.username)}</strong></span>
@@ -1400,7 +1450,7 @@ function setReplyingTo(message) {
         <button class="reply-preview-close" onclick="cancelReply()">✕</button>
     `;
     replyPreview.style.display = 'flex';
-    
+
     messageInput.focus();
 }
 
@@ -1416,7 +1466,7 @@ function cancelReply() {
 // ===== Sistema de Edição =====
 function startEditingMessage(message, messageEl) {
     editingMessage = { message, element: messageEl };
-    
+
     // Mostrar preview de edição
     let editPreview = document.getElementById('edit-preview');
     if (!editPreview) {
@@ -1426,7 +1476,7 @@ function startEditingMessage(message, messageEl) {
         const inputWrapper = document.querySelector('.input-wrapper');
         inputWrapper.parentNode.insertBefore(editPreview, inputWrapper);
     }
-    
+
     editPreview.innerHTML = `
         <div class="edit-preview-content">
             <span class="edit-preview-label">✏️ Editando mensagem</span>
@@ -1434,7 +1484,7 @@ function startEditingMessage(message, messageEl) {
         <button class="edit-preview-close" onclick="cancelEdit()">✕</button>
     `;
     editPreview.style.display = 'flex';
-    
+
     // Colocar texto atual no input
     messageInput.value = message.text;
     messageInput.focus();
@@ -1470,7 +1520,7 @@ function scrollToBottom() {
 // ===== Funções de Usuários =====
 function renderUsersList() {
     userCount.textContent = users.length;
-    
+
     usersList.innerHTML = users
         .filter(user => user.id !== socket.id) // Não mostrar o próprio usuário
         .map(user => `
@@ -1507,7 +1557,7 @@ function requestNotificationPermission() {
         console.log('Este navegador não suporta notificações desktop');
         return;
     }
-    
+
     if (Notification.permission === 'granted') {
         notificationsEnabled = true;
     } else if (Notification.permission !== 'denied') {
@@ -1527,7 +1577,7 @@ function showNotification(title, body, icon = '💬') {
     if (!notificationsEnabled || document.hasFocus()) {
         return;
     }
-    
+
     try {
         // Converter emoji para data URI (SVG com emoji) para evitar erro 404
         let notificationIcon = icon;
@@ -1549,7 +1599,7 @@ function showNotification(title, body, icon = '💬') {
                 notificationIcon = undefined;
             }
         }
-        
+
         const notification = new Notification(title, {
             body: body,
             icon: notificationIcon,
@@ -1557,13 +1607,13 @@ function showNotification(title, body, icon = '💬') {
             requireInteraction: false,
             silent: false
         });
-        
+
         // Focar na janela quando clicar na notificação
         notification.onclick = () => {
             window.focus();
             notification.close();
         };
-        
+
         // Fechar automaticamente após 5 segundos
         setTimeout(() => {
             notification.close();
@@ -1607,10 +1657,10 @@ async function loadAppleEmojis() {
         // Tentar carregar categorias do servidor
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 2000);
-        
+
         const catResponse = await fetch('/api/emojis/categories', { signal: controller.signal });
         clearTimeout(timeout);
-        
+
         if (catResponse.ok) {
             emojiCategories = await catResponse.json();
             renderEmojiTabs();
@@ -1635,14 +1685,14 @@ async function loadEmojiCategory(category) {
             renderCustomStickers();
             return;
         }
-        
+
         // Tentar carregar do servidor
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 2000);
-        
+
         const response = await fetch(`/api/emojis?category=${encodeURIComponent(category)}&limit=200`, { signal: controller.signal });
         clearTimeout(timeout);
-        
+
         if (response.ok) {
             const data = await response.json();
             if (data && data.length > 0) {
@@ -1662,7 +1712,7 @@ async function loadEmojiCategory(category) {
 function renderEmojiTabs() {
     const tabsContainer = document.querySelector('.sticker-tabs');
     if (!tabsContainer) return;
-    
+
     // Mapear ícones para categorias
     const categoryIcons = {
         'Smileys & Emotion': '😊',
@@ -1676,7 +1726,7 @@ function renderEmojiTabs() {
         'Flags': '🏳️',
         'Component': '🔧'
     };
-    
+
     tabsContainer.innerHTML = emojiCategories
         .filter(cat => cat !== 'Component') // Esconder componentes
         .slice(0, 8) // Limitar a 8 tabs
@@ -1686,7 +1736,7 @@ function renderEmojiTabs() {
                 ${categoryIcons[cat] || '📦'} ${cat.split(' ')[0]}
             </button>
         `).join('');
-    
+
     // Adicionar tab de customizados
     tabsContainer.innerHTML += `
         <button class="sticker-tab ${currentCategory === 'custom' ? 'active' : ''}" 
@@ -1694,14 +1744,14 @@ function renderEmojiTabs() {
             ⭐ Minhas
         </button>
     `;
-    
+
     // Re-adicionar event listeners
     document.querySelectorAll('.sticker-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             document.querySelectorAll('.sticker-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
             currentCategory = tab.dataset.category;
-            
+
             if (currentCategory === 'custom') {
                 renderCustomStickers();
             } else {
@@ -1714,48 +1764,38 @@ function renderEmojiTabs() {
 function renderAppleEmojis() {
     const content = document.getElementById('sticker-content');
     if (!content) return;
-    
+
     content.innerHTML = '';
-    
+
     if (!appleEmojis || appleEmojis.length === 0) {
         console.warn('⚠️ Nenhum emoji carregado, usando fallback');
         renderStickers(currentCategory);
         return;
     }
-    
+
     appleEmojis.forEach(emoji => {
         const btn = document.createElement('button');
         btn.className = 'sticker-item apple-emoji';
-        
-        // Criar canvas para renderizar o emoji com melhor qualidade
-        const canvas = document.createElement('canvas');
-        canvas.width = 48;
-        canvas.height = 48;
-        const ctx = canvas.getContext('2d');
-        
-        // Configurar fonte e desenhar emoji
-        ctx.font = '38px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(emoji.char, 24, 26);
-        
-        // Converter canvas para imagem
-        const img = document.createElement('img');
-        img.src = canvas.toDataURL();
-        img.alt = emoji.short_name;
-        img.style.width = '32px';
-        img.style.height = '32px';
-        img.style.imageRendering = 'crisp-edges';
-        
-        btn.appendChild(img);
-        btn.title = emoji.short_name.replace(/_/g, ' ');
+
+        // Usar o parser global de emojis
+        const parsed = parseEmojis(emoji.char);
+
+        // Se o parser retornou uma imagem, usar innerHTML
+        if (parsed.includes('<img')) {
+            btn.innerHTML = parsed;
+        } else {
+            // Fallback para texto se não houver imagem
+            btn.textContent = emoji.char;
+        }
+
+        btn.title = emoji.short_name ? emoji.short_name.replace(/_/g, ' ') : '';
         btn.addEventListener('click', () => {
             console.log('😊 Enviando emoji:', emoji.char);
             sendSticker(emoji.char);
         });
         content.appendChild(btn);
     });
-    
+
     console.log(`✅ ${appleEmojis.length} emojis renderizados`);
 }
 
@@ -1785,12 +1825,12 @@ function saveCustomStickers() {
 function initializeStickers() {
     loadCustomStickers();
     console.log('🎉 Sistema de emojis inicializado');
-    
+
     // Renderizar emojis fallback imediatamente
     emojiCategories = Object.keys(fallbackStickers);
     renderEmojiTabs();
     renderStickers(currentCategory);
-    
+
     // Tentar carregar emojis Apple do servidor em background
     setTimeout(() => {
         loadAppleEmojis().catch(err => {
@@ -1798,7 +1838,7 @@ function initializeStickers() {
             // Já está usando fallback
         });
     }, 300);
-    
+
     // Busca de emojis
     const searchInput = document.getElementById('sticker-search-input');
     if (searchInput) {
@@ -1810,7 +1850,7 @@ async function handleStickerSearch(e) {
     const query = e.target.value.toLowerCase().trim();
     const content = document.getElementById('sticker-content');
     if (!content) return;
-    
+
     if (!query) {
         if (currentCategory === 'custom') {
             renderCustomStickers();
@@ -1819,23 +1859,30 @@ async function handleStickerSearch(e) {
         }
         return;
     }
-    
+
     // Buscar emojis no servidor
     try {
         const response = await fetch(`/api/emojis?search=${encodeURIComponent(query)}&limit=100`);
         if (response.ok) {
             const emojis = await response.json();
             content.innerHTML = '';
-            
+
             if (emojis.length === 0) {
                 content.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Nenhum emoji encontrado</div>';
                 return;
             }
-            
+
             emojis.forEach(emoji => {
                 const btn = document.createElement('button');
                 btn.className = 'sticker-item apple-emoji';
-                btn.textContent = emoji.char;
+
+                const parsed = parseEmojis(emoji.char);
+                if (parsed.includes('<img')) {
+                    btn.innerHTML = parsed;
+                } else {
+                    btn.textContent = emoji.char;
+                }
+
                 btn.title = emoji.short_name.replace(/_/g, ' ');
                 btn.addEventListener('click', () => sendSticker(emoji.char));
                 content.appendChild(btn);
@@ -1850,7 +1897,7 @@ async function handleStickerSearch(e) {
 function searchFallbackStickers(query) {
     const content = document.getElementById('sticker-content');
     if (!content) return;
-    
+
     const results = [];
     Object.values(fallbackStickers).forEach(emojis => {
         emojis.forEach(emoji => {
@@ -1859,17 +1906,24 @@ function searchFallbackStickers(query) {
             }
         });
     });
-    
+
     content.innerHTML = '';
     if (results.length === 0) {
         content.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Nenhum emoji encontrado</div>';
         return;
     }
-    
+
     results.forEach(emoji => {
         const btn = document.createElement('button');
         btn.className = 'sticker-item';
-        btn.textContent = emoji;
+
+        const parsed = parseEmojis(emoji);
+        if (parsed.includes('<img')) {
+            btn.innerHTML = parsed;
+        } else {
+            btn.textContent = emoji;
+        }
+
         btn.addEventListener('click', () => sendSticker(emoji));
         content.appendChild(btn);
     });
@@ -1878,21 +1932,28 @@ function searchFallbackStickers(query) {
 function renderStickers(category) {
     const content = document.getElementById('sticker-content');
     if (!content) return;
-    
+
     content.innerHTML = '';
-    
+
     if (category === 'custom') {
         renderCustomStickers();
         return;
     }
-    
+
     // Usar fallback stickers
     const categoryStickers = fallbackStickers[category] || [];
-    
+
     categoryStickers.forEach(sticker => {
         const stickerEl = document.createElement('div');
         stickerEl.className = 'sticker-item';
-        stickerEl.textContent = sticker;
+
+        const parsed = parseEmojis(sticker);
+        if (parsed.includes('<img')) {
+            stickerEl.innerHTML = parsed;
+        } else {
+            stickerEl.textContent = sticker;
+        }
+
         stickerEl.addEventListener('click', () => sendSticker(sticker));
         content.appendChild(stickerEl);
     });
@@ -1901,9 +1962,9 @@ function renderStickers(category) {
 function renderCustomStickers() {
     const content = document.getElementById('sticker-content');
     if (!content) return;
-    
+
     content.innerHTML = '';
-    
+
     // Botão para adicionar nova figurinha
     const addBtn = document.createElement('div');
     addBtn.className = 'btn-add-sticker';
@@ -1911,17 +1972,17 @@ function renderCustomStickers() {
     addBtn.title = 'Adicionar figurinha';
     addBtn.addEventListener('click', handleAddCustomSticker);
     content.appendChild(addBtn);
-    
+
     // Renderizar figurinhas existentes
     customStickers.forEach((sticker, index) => {
         const wrapper = document.createElement('div');
         wrapper.className = 'custom-sticker-wrapper';
-        
+
         const stickerEl = document.createElement('div');
         stickerEl.className = 'sticker-item';
         stickerEl.style.backgroundImage = `url(${sticker.data})`;
         stickerEl.addEventListener('click', () => sendCustomSticker(sticker.data));
-        
+
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'btn-delete-sticker';
         deleteBtn.innerHTML = '✕';
@@ -1930,7 +1991,7 @@ function renderCustomStickers() {
             e.stopPropagation();
             deleteCustomSticker(index);
         });
-        
+
         wrapper.appendChild(stickerEl);
         wrapper.appendChild(deleteBtn);
         content.appendChild(wrapper);
@@ -1942,21 +2003,21 @@ function handleAddCustomSticker() {
         alert(`Você atingiu o limite de ${MAX_CUSTOM_STICKERS} figurinhas personalizadas.`);
         return;
     }
-    
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/png,image/jpeg,image/gif,image/webp';
     input.onchange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
+
         // Validar tamanho (3MB)
         const maxSize = 3 * 1024 * 1024;
         if (file.size > maxSize) {
             alert('Figurinha muito grande! Tamanho máximo: 3MB');
             return;
         }
-        
+
         // Converter para base64
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -1965,7 +2026,7 @@ function handleAddCustomSticker() {
                 data: event.target.result,
                 addedAt: Date.now()
             };
-            
+
             customStickers.push(newSticker);
             saveCustomStickers();
             renderCustomStickers();
@@ -1991,7 +2052,7 @@ function sendCustomSticker(imageData) {
 
 function switchStickerCategory(category) {
     currentCategory = category;
-    
+
     // Atualizar tabs visuais
     document.querySelectorAll('.sticker-tab').forEach(tab => {
         if (tab.dataset.category === category) {
@@ -2000,7 +2061,7 @@ function switchStickerCategory(category) {
             tab.classList.remove('active');
         }
     });
-    
+
     // Carregar emojis da categoria
     if (category === 'custom') {
         renderCustomStickers();
@@ -2026,10 +2087,10 @@ function closeStickerPicker() {
 function sendSticker(sticker) {
     // Enviar figurinha como mensagem especial
     socket.emit('message:send', { text: `STICKER:${sticker}` });
-    
+
     // Fechar painel
     closeStickerPicker();
-    
+
     // Focar no input
     messageInput.focus();
 }
@@ -2038,16 +2099,16 @@ function sendSticker(sticker) {
 function handleImageSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     processImageFile(file);
 }
 
 function handleFileSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     processFileUpload(file);
-    
+
     // Reset input
     fileInput.value = '';
 }
@@ -2124,20 +2185,24 @@ let pendingImageFile = null;
 let pendingImageBase64 = null;
 
 function showImagePreview(file, base64Data) {
+    // Importante: remover o modal anterior sem resetar as variáveis pendentes
+    const existingModal = document.getElementById('image-preview-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    // Não chamamos hideImagePreview() aqui pois ela limpa pendingImageFile/Base64
+
     pendingImageFile = file;
     pendingImageBase64 = base64Data;
-    
-    // Remover preview anterior se existir
-    hideImagePreview();
-    
+
     // Criar modal de preview
     const previewModal = document.createElement('div');
     previewModal.id = 'image-preview-modal';
     previewModal.className = 'image-preview-modal';
-    
+
     const fileSize = formatBytes(file.size);
     const fileName = file.name || 'imagem.png';
-    
+
     previewModal.innerHTML = `
         <div class="image-preview-backdrop" onclick="hideImagePreview()"></div>
         <div class="image-preview-container">
@@ -2173,20 +2238,20 @@ function showImagePreview(file, base64Data) {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(previewModal);
-    
+
     // Animação de entrada
     requestAnimationFrame(() => {
         previewModal.classList.add('visible');
     });
-    
+
     // Focar no input de legenda
     setTimeout(() => {
         const captionInput = document.getElementById('image-caption-input');
         if (captionInput) captionInput.focus();
     }, 100);
-    
+
     // Fechar com ESC
     document.addEventListener('keydown', handlePreviewKeydown);
 }
@@ -2201,75 +2266,125 @@ function handlePreviewKeydown(e) {
 }
 
 function hideImagePreview() {
+    console.log('🔍 [DEBUG] hideImagePreview called');
     const modal = document.getElementById('image-preview-modal');
     if (modal) {
         modal.classList.remove('visible');
         setTimeout(() => modal.remove(), 200);
     }
-    pendingImageFile = null;
-    pendingImageBase64 = null;
     document.removeEventListener('keydown', handlePreviewKeydown);
-    
-    // Limpar input de imagem
+
+    // Resetar input de imagem
     if (imageInput) {
         imageInput.value = '';
     }
 }
 
+function clearPendingImage() {
+    console.log('🧹 [DEBUG] clearPendingImage - Resetting image variables');
+    pendingImageFile = null;
+    pendingImageBase64 = null;
+}
 function confirmSendImage() {
+    console.log('🖼️ [DEBUG] confirmSendImage called. pendingImageBase64 exists:', !!pendingImageBase64);
     if (!pendingImageBase64) {
+        alert('DEBUG: Nenhuma imagem pendente para enviar.');
         hideImagePreview();
         return;
     }
-    
+
     const captionInput = document.getElementById('image-caption-input');
     const caption = captionInput ? captionInput.value.trim() : '';
-    
+
     // Verificar tamanho para decidir método de envio
-    const socketLimit = 1 * 1024 * 1024;
-    
+    const socketLimit = 1 * 1024 * 1024; // 1MB for direct socket send
+
+    const btn = document.querySelector('.btn-preview-send');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>Enviando...</span>';
+    }
+
     if (pendingImageFile && pendingImageFile.size > socketLimit) {
         // Upload por chunks para imagens grandes
-        console.log('[image] Large image, using chunk upload');
-        uploadFileInChunks(pendingImageFile);
-        
-        // Se tem legenda, enviar como mensagem separada
-        if (caption) {
-            setTimeout(() => {
-                socket.emit('message:send', { text: caption });
-            }, 500);
-        }
+        console.log('📦 [DEBUG] Large image (>1MB), using chunk upload');
+        uploadFileInChunks(pendingImageFile)
+            .then(() => {
+                console.log('✅ [DEBUG] Chunk upload completed successfully');
+                // Se tem legenda, enviar como mensagem separada APÓS upload
+                if (caption) {
+                    setTimeout(() => {
+                        socket.emit('message:send', { text: caption });
+                    }, 500);
+                }
+                hideImagePreview();
+                clearPendingImage();
+            })
+            .catch(err => {
+                console.error('❌ [DEBUG] Upload failed:', err);
+                alert('Falha no envio da imagem (Chunk): ' + err.message);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>Tentar Novamente</span>';
+                }
+            });
     } else {
         // Envio direto via socket para imagens pequenas
         try {
+            console.log('🚀 [DEBUG] Sending via socket. Size:', pendingImageBase64.length);
+
             // Deduplicate check
             if (!window._lastBase64SendTime) window._lastBase64SendTime = 0;
             if (!window._lastBase64SendKey) window._lastBase64SendKey = null;
             const now = Date.now();
-            const debounce = 800;
+            const debounce = 1000;
             const payload = pendingImageBase64.split(',')[1] || pendingImageBase64;
             const key = `${payload.length}:${payload.substr(0, 32)}:${payload.substr(payload.length - 32, 32)}`;
-            
-            if (!(window._lastBase64SendKey === key && (now - window._lastBase64SendTime) < debounce)) {
-                window._lastBase64SendTime = now;
-                window._lastBase64SendKey = key;
-                
-                console.log('[image] Sending image via socket, size=', pendingImageBase64.length);
-                socket.emit('message:send', { text: `IMAGE:${pendingImageBase64}` });
-                
-                // Enviar legenda como mensagem separada se existir
-                if (caption) {
-                    setTimeout(() => {
-                        socket.emit('message:send', { text: caption });
-                    }, 100);
-                }
+
+            if (window._lastBase64SendKey === key && (now - window._lastBase64SendTime) < debounce) {
+                console.warn('⚠️ [DEBUG] Duplicate send prevented');
+                hideImagePreview();
+                return;
             }
+
+            window._lastBase64SendTime = now;
+            window._lastBase64SendKey = key;
+
+            // Debug emit
+            console.log('📡 [DEBUG] Emitting message:send with IMAGE prefix');
+
+            // Verificar conexão
+            if (!socket.connected) {
+                alert('DEBUG ERROR: Socket desconectado! Não é possível enviar.');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>Tentar Novamente</span>';
+                }
+                return;
+            }
+
+            socket.emit('message:send', { text: `IMAGE:${pendingImageBase64}` });
+
+            // Enviar legenda como mensagem separada se existir
+            if (caption) {
+                setTimeout(() => {
+                    socket.emit('message:send', { text: caption });
+                }, 100);
+            }
+
+            console.log('📤 [DEBUG] Socket emit done');
+            hideImagePreview();
+            clearPendingImage();
+
         } catch (e) {
-            console.error('[image] Error sending:', e);
+            console.error('❌ [DEBUG] Error sending:', e);
+            alert('Erro ao enviar imagem: ' + e.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span>Tentar Novamente</span>';
+            }
         }
     }
-    
-    hideImagePreview();
 }
 
 function processImageFile(file) {
@@ -2278,25 +2393,25 @@ function processImageFile(file) {
         alert('Por favor, selecione apenas arquivos de imagem.');
         return;
     }
-    
+
     const maxSize = 10 * 1024 * 1024; // 10MB max total
-    
+
     if (file.size > maxSize) {
         alert('Imagem muito grande! Tamanho máximo: 10MB');
         return;
     }
-    
+
     // Ler a imagem e mostrar preview
     const reader = new FileReader();
     reader.onload = (event) => {
         const base64Image = event.target.result;
         showImagePreview(file, base64Image);
     };
-    
+
     reader.onerror = () => {
         alert('Erro ao ler a imagem. Tente novamente.');
     };
-    
+
     reader.readAsDataURL(file);
 }
 
@@ -2307,64 +2422,62 @@ function processFileUpload(file) {
         alert('Arquivo muito grande! Tamanho máximo: 1GB');
         return;
     }
-    
+
     // Mostrar status de upload
     addSystemMessage(`📤 Uploadando arquivo: ${file.name}... (${formatBytes(file.size)})`);
-    
+
     // Iniciar upload em chunks
     uploadFileInChunks(file);
 }
 
 // ===== Upload de Arquivos em Chunks =====
-async function uploadFileInChunks(file) {
+async function uploadFileInChunks(file, autoSend = true) {
     const chunkSize = 5 * 1024 * 1024; // 5MB por chunk
     const fileName = file.name;
     const fileSize = file.size;
     const totalChunks = Math.ceil(fileSize / chunkSize);
     let sessionId = null;
-    
+
     // Mostrar progress bar
     showUploadProgress(fileName);
-    
+
     try {
         // Iniciar upload
         const initRes = await fetch('/api/upload/init', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                filename: fileName, 
-                filesize: fileSize, 
-                totalChunks 
+            body: JSON.stringify({
+                filename: fileName,
+                filesize: fileSize,
+                totalChunks
             })
         });
-        
+
         if (!initRes.ok) throw new Error('Erro ao iniciar upload');
-        
+
         const initData = await initRes.json();
         sessionId = initData.sessionId;
-        
+
         // Enviar chunks
         let uploadedSize = 0;
         for (let i = 0; i < totalChunks; i++) {
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize, fileSize);
             const chunk = file.slice(start, end);
-            
+
             // Converter chunk para base64 de forma não-bloqueante
             const base64Chunk = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => {
-                    // Extrair base64 do data URL
                     const base64 = reader.result.split(',')[1];
                     resolve(base64);
                 };
                 reader.onerror = () => {
                     reject(new Error(`Erro ao ler chunk ${i}`));
                 };
-                // Usar readAsArrayBuffer e depois converter para base64
                 reader.readAsDataURL(chunk);
             });
-            
+
             const chunkRes = await fetch('/api/upload/chunk', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2374,75 +2487,53 @@ async function uploadFileInChunks(file) {
                     chunk: base64Chunk
                 })
             });
-            
+
             if (!chunkRes.ok) {
                 const errorData = await chunkRes.json();
                 throw new Error(`Erro no chunk ${i}: ${errorData.error}`);
             }
-            
+
             uploadedSize += (end - start);
             const percent = Math.round((uploadedSize / fileSize) * 100);
             updateUploadProgress(percent, uploadedSize, fileSize);
-            console.log(`Upload ${percent}% completo (chunk ${i + 1}/${totalChunks})`);
         }
-        
+
         // Finalizar upload
         const completeRes = await fetch('/api/upload/complete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionId, filename: fileName, filesize: fileSize })
         });
-        
+
         if (!completeRes.ok) throw new Error('Erro ao finalizar upload');
-        
+
         const result = await completeRes.json();
-        
-        console.log('Upload response:', result);
-        
+
         if (result.success && result.url) {
-            // Remover progress bar silenciosamente
             hideUploadProgress();
-            
-            // Enviar mensagem com link do arquivo para o servidor
-            if (!socket || !socket.connected) {
-                console.error('Socket não conectado ao tentar enviar arquivo');
-                addSystemMessage(`❌ Socket desconectado. Tente novamente.`);
-                return;
-            }
-            
-            console.log(`📁 Arquivo uploadado: ${result.filename}`);
-            console.log(`📦 URL: ${result.url}`);
-            console.log(`💾 Tamanho: ${result.filesize} bytes`);
-            
-            // Pequeno delay para garantir que arquivo foi escrito no disco
-            setTimeout(() => {
-                console.log(`📤 ENVIANDO mensagem socket: FILE:${result.url}|${fileName}|${fileSize}`);
-                console.log(`⏳ Aguardando confirmação do servidor...`);
-                
-                // Enviar com callback de confirmação
-                socket.emit('message:send', { 
-                    text: `FILE:${result.url}|${fileName}|${fileSize}` 
-                }, (response) => {
-                    console.log('🎉 CONFIRMADO pelo servidor:', response);
-                    console.log(`📨 Message ID: ${response?.messageId}`);
-                    console.log(`📝 Texto registrado: ${response?.text}`);
-                    addSystemMessage(`✅ Arquivo enviado e registrado: ${fileName}`);
+
+            if (autoSend) {
+                // Enviar mensagem com link do arquivo para o servidor
+                if (!socket || !socket.connected) {
+                    throw new Error('Socket não conectado');
+                }
+
+                socket.emit('message:send', {
+                    text: `FILE:${result.url}|${fileName}|${fileSize}`
                 });
-                
-                // Timeout se não receber confirmação em 5 segundos
-                setTimeout(() => {
-                    console.warn('⚠️ Nenhuma confirmação recebida em 5s');
-                }, 5000);
-                
-            }, 500);
+                addSystemMessage(`✅ Arquivo enviado: ${fileName}`);
+            }
+
+            return result; // Retorna o resultado para quem chamou
         } else {
             hideUploadProgress();
-            throw new Error('Resposta inválida do servidor: ' + JSON.stringify(result));
+            throw new Error('Resposta inválida do servidor');
         }
     } catch (error) {
         console.error('Erro ao fazer upload:', error);
         hideUploadProgress();
         addSystemMessage(`❌ Erro: ${error.message}`);
+        throw error;
     }
 }
 
@@ -2476,7 +2567,7 @@ function updateUploadProgress(percent, uploaded, total) {
     if (progressDiv) {
         const bar = progressDiv.querySelector('.upload-progress-bar');
         if (bar) bar.style.width = percent + '%';
-        
+
         const textDiv = progressDiv.querySelector('.upload-progress-text');
         if (textDiv) {
             textDiv.innerHTML = `
@@ -2499,13 +2590,13 @@ function hideUploadProgress() {
 function initializeDragAndDrop() {
     const dropZone = messagesContainer;
     dropZone.classList.add('drop-zone');
-    
+
     // Prevenir comportamento padrão
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
         document.body.addEventListener(eventName, preventDefaults, false);
     });
-    
+
     // Highlight ao arrastar sobre a área
     ['dragenter', 'dragover'].forEach(eventName => {
         dropZone.addEventListener(eventName, () => {
@@ -2513,14 +2604,14 @@ function initializeDragAndDrop() {
             dropZone.style.borderWidth = '2px';
         }, false);
     });
-    
+
     ['dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, () => {
             dropZone.classList.remove('active');
             dropZone.style.borderWidth = '';
         }, false);
     });
-    
+
     // Handle drop
     dropZone.addEventListener('drop', handleDrop, false);
 }
@@ -2533,7 +2624,7 @@ function preventDefaults(e) {
 function handleDrop(e) {
     const dt = e.dataTransfer;
     const files = dt.files;
-    
+
     if (files.length > 0) {
         const file = files[0];
         // Se for imagem, processar como antes; senão, fazer upload de arquivo grande
@@ -2554,13 +2645,13 @@ async function uploadLargeFile(file) {
         alert(`Arquivo muito grande! Tamanho máximo: 1GB (você tentou enviar ${(file.size / 1024 / 1024 / 1024).toFixed(2)}GB)`);
         return;
     }
-    
+
     console.log(`[upload] starting upload of ${file.name} (${file.size} bytes)`);
-    
+
     // Adicionar mensagem de progresso
     const statusMsgId = `upload_${Date.now()}`;
     addSystemMessage(`📤 Iniciando upload: ${file.name} (${formatBytes(file.size)})`, statusMsgId);
-    
+
     try {
         // 1. Inicializar upload session no servidor
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -2575,20 +2666,20 @@ async function uploadLargeFile(file) {
                 username: currentUser?.username
             })
         });
-        
+
         if (!initResponse.ok) {
             throw new Error(await initResponse.text());
         }
-        
+
         const { sessionId } = await initResponse.json();
         console.log(`[upload] session ${sessionId} initialized`);
-        
+
         // 2. Upload chunks em paralelo (máx 3 simultâneos para não sobrecarregar)
         const chunks = [];
         for (let i = 0; i < totalChunks; i++) {
             chunks.push(i);
         }
-        
+
         let successCount = 0;
         for (let i = 0; i < chunks.length; i += 3) {
             const batch = chunks.slice(i, i + 3);
@@ -2596,28 +2687,28 @@ async function uploadLargeFile(file) {
                 successCount = count;
             })));
         }
-        
+
         // 3. Finalizar upload
         const completeResponse = await fetch('/api/upload/complete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionId })
         });
-        
+
         if (!completeResponse.ok) {
             throw new Error(await completeResponse.text());
         }
-        
+
         const { filename, url } = await completeResponse.json();
         console.log(`[upload] upload complete: ${filename}`);
-        
+
         // 4. Enviar mensagem de arquivo para o chat
         const message = `FILE:${url}|${file.name}|${file.size}|${file.type}`;
         socket.emit('message:send', { text: message });
-        
+
         // Atualizar mensagem de status
         updateSystemMessage(statusMsgId, `✅ Upload concluído: ${file.name}`);
-        
+
     } catch (error) {
         console.error('[upload] error:', error);
         updateSystemMessage(statusMsgId, `❌ Erro no upload: ${error.message}`);
@@ -2628,7 +2719,7 @@ async function uploadChunk(file, sessionId, chunkIndex, totalChunks, statusMsgId
     const start = chunkIndex * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, file.size);
     const chunk = file.slice(start, end);
-    
+
     // Converter chunk para base64 para compatibilidade com JSON
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -2644,18 +2735,18 @@ async function uploadChunk(file, sessionId, chunkIndex, totalChunks, statusMsgId
                         chunk: base64chunk
                     })
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
-                
+
                 const { progress, uploadedBytes, totalBytes } = await response.json();
                 console.log(`[upload] chunk ${chunkIndex}/${totalChunks} uploaded (${progress}%)`);
-                
+
                 // Atualizar UI
                 const progressText = `📤 Upload: ${formatBytes(uploadedBytes)} / ${formatBytes(totalBytes)} (${progress}%)`;
                 updateSystemMessage(statusMsgId, progressText);
-                
+
                 resolve();
             } catch (err) {
                 reject(err);
@@ -2670,7 +2761,7 @@ async function uploadChunk(file, sessionId, chunkIndex, totalChunks, statusMsgId
 function showDownloadProgress(fileName) {
     // Remover qualquer indicador anterior
     hideDownloadProgress();
-    
+
     const progressDiv = document.createElement('div');
     progressDiv.id = 'download-progress';
     progressDiv.className = 'download-progress';
@@ -2688,23 +2779,23 @@ function showDownloadProgress(fileName) {
         </div>
     `;
     document.body.appendChild(progressDiv);
-    
+
     // Animação de entrada
     requestAnimationFrame(() => {
         progressDiv.classList.add('visible');
     });
-    
+
     return progressDiv;
 }
 
 function updateDownloadProgress(percent, downloadedBytes, totalBytes) {
     const progressDiv = document.getElementById('download-progress');
     if (!progressDiv) return;
-    
+
     const bar = progressDiv.querySelector('.download-progress-bar');
     const percentText = progressDiv.querySelector('.download-percent');
     const sizeText = progressDiv.querySelector('.download-size');
-    
+
     if (bar) bar.style.width = `${percent}%`;
     if (percentText) percentText.textContent = `${Math.round(percent)}%`;
     if (sizeText) {
@@ -2736,14 +2827,14 @@ function hideDownloadProgress(success = true) {
 function downloadFileWithName(fileUrl, fileName) {
     // Mostrar indicador de progresso
     showDownloadProgress(fileName);
-    
+
     // Usando XMLHttpRequest para obter progresso do download
     const xhr = new XMLHttpRequest();
     xhr.open('GET', `${fileUrl}?filename=${encodeURIComponent(fileName)}`, true);
     xhr.responseType = 'blob';
-    
+
     let startTime = Date.now();
-    
+
     xhr.onprogress = (event) => {
         if (event.lengthComputable) {
             const percent = (event.loaded / event.total) * 100;
@@ -2756,7 +2847,7 @@ function downloadFileWithName(fileUrl, fileName) {
                 const sizeText = progressDiv.querySelector('.download-size');
                 if (percentText) percentText.textContent = 'Baixando...';
                 if (sizeText) sizeText.textContent = formatBytes(event.loaded);
-                
+
                 // Animar a barra indeterminada
                 const bar = progressDiv.querySelector('.download-progress-bar');
                 if (bar) {
@@ -2766,7 +2857,7 @@ function downloadFileWithName(fileUrl, fileName) {
             }
         }
     };
-    
+
     xhr.onload = () => {
         if (xhr.status === 200) {
             const blob = xhr.response;
@@ -2777,17 +2868,17 @@ function downloadFileWithName(fileUrl, fileName) {
             a.download = fileName;
             document.body.appendChild(a);
             a.click();
-            
+
             // Cleanup
             setTimeout(() => {
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
             }, 100);
-            
+
             // Atualizar para 100% e esconder
             updateDownloadProgress(100, 1, 1);
             hideDownloadProgress(true);
-            
+
             const duration = ((Date.now() - startTime) / 1000).toFixed(1);
             console.log(`✅ Download concluído: ${fileName} em ${duration}s`);
         } else {
@@ -2797,14 +2888,14 @@ function downloadFileWithName(fileUrl, fileName) {
             window.open(fileUrl, '_blank');
         }
     };
-    
+
     xhr.onerror = () => {
         console.error('Erro de rede ao baixar arquivo');
         hideDownloadProgress(false);
         // Fallback: abrir em nova aba
         window.open(fileUrl, '_blank');
     };
-    
+
     xhr.send();
 }
 
@@ -2829,7 +2920,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function openLightbox(imageSrc) {
     // Criar lightbox se não existir
     let lightbox = document.getElementById('lightbox');
-    
+
     if (!lightbox) {
         lightbox = document.createElement('div');
         lightbox.id = 'lightbox';
@@ -2840,12 +2931,12 @@ function openLightbox(imageSrc) {
         `;
         document.body.appendChild(lightbox);
     }
-    
+
     // Atualizar imagem e mostrar
     const img = document.getElementById('lightbox-img');
     img.src = imageSrc;
     lightbox.classList.add('active');
-    
+
     // Fechar ao clicar fora da imagem
     lightbox.onclick = (e) => {
         if (e.target === lightbox) {
@@ -2884,49 +2975,66 @@ function loadCounters() {
     socket.emit('counters:get');
 }
 
-// Ouvir lista de contadores do servidor
-socket.on('counters:list', (serverCounters) => {
-    counters = serverCounters;
-    renderCounters();
-    console.log(`📊 ${counters.length} contadores carregados do servidor`);
-});
-
-// Ouvir quando um contador é criado
-socket.on('counter:created', (counter) => {
-    counters.push(counter);
-    renderCounters();
-    addSystemMessage(`📊 Contador "${counter.name}" criado por ${counter.createdBy}`);
-});
-
-// Ouvir quando um contador é atualizado
-socket.on('counter:updated', (data) => {
-    const counter = counters.find(c => c.id === data.id);
-    if (counter) {
-        counter.value = data.value;
-        // Atualizar apenas o valor com animação
-        const valueEl = document.getElementById(`value-${data.id}`);
-        if (valueEl) {
-            valueEl.textContent = counter.value;
-            valueEl.classList.add('pulse');
-            setTimeout(() => valueEl.classList.remove('pulse'), 300);
-        }
+// Carregar contadores do servidor - chamada via socket connect
+function loadCounters() {
+    if (socket && socket.connected) {
+        socket.emit('counters:get');
     }
-});
+}
 
-// Ouvir quando um contador é renomeado
-socket.on('counter:renamed', (data) => {
-    const counter = counters.find(c => c.id === data.id);
-    if (counter) {
-        counter.name = data.name;
+// Configurar listeners de contadores (chamado no connect)
+function setupCounterListeners() {
+    // Remover listeners anteriores para evitar duplicidade
+    socket.off('counters:list');
+    socket.off('counter:created');
+    socket.off('counter:updated');
+    socket.off('counter:renamed');
+    socket.off('counter:deleted');
+
+    // Ouvir lista de contadores do servidor
+    socket.on('counters:list', (serverCounters) => {
+        counters = serverCounters;
         renderCounters();
-    }
-});
+        console.log(`📊 ${counters.length} contadores carregados do servidor`);
+    });
 
-// Ouvir quando um contador é deletado
-socket.on('counter:deleted', (data) => {
-    counters = counters.filter(c => c.id !== data.id);
-    renderCounters();
-});
+    // Ouvir quando um contador é criado
+    socket.on('counter:created', (counter) => {
+        counters.push(counter);
+        renderCounters();
+        addSystemMessage(`📊 Contador "${counter.name}" criado por ${counter.createdBy}`);
+    });
+
+    // Ouvir quando um contador é atualizado
+    socket.on('counter:updated', (data) => {
+        const counter = counters.find(c => c.id === data.id);
+        if (counter) {
+            counter.value = data.value;
+            // Atualizar apenas o valor com animação
+            const valueEl = document.getElementById(`value-${data.id}`);
+            if (valueEl) {
+                valueEl.textContent = counter.value;
+                valueEl.classList.add('pulse');
+                setTimeout(() => valueEl.classList.remove('pulse'), 300);
+            }
+        }
+    });
+
+    // Ouvir quando um contador é renomeado
+    socket.on('counter:renamed', (data) => {
+        const counter = counters.find(c => c.id === data.id);
+        if (counter) {
+            counter.name = data.name;
+            renderCounters();
+        }
+    });
+
+    // Ouvir quando um contador é deletado
+    socket.on('counter:deleted', (data) => {
+        counters = counters.filter(c => c.id !== data.id);
+        renderCounters();
+    });
+}
 
 function toggleAddonsPanel() {
     addonsSidebar.classList.toggle('open');
@@ -2951,19 +3059,19 @@ function createNewCounter() {
     const name = document.getElementById('counter-name').value.trim();
     const initialValue = parseInt(document.getElementById('counter-initial').value) || 0;
     const color = document.getElementById('counter-color').value;
-    
+
     if (!name) {
         alert('Por favor, digite um nome para o contador');
         return;
     }
-    
+
     // Enviar para o servidor via Socket.io
     socket.emit('counter:create', {
         name: name,
         value: initialValue,
         color: color
     });
-    
+
     closeNewCounterModal();
 }
 
@@ -2977,7 +3085,7 @@ function renderCounters() {
         `;
         return;
     }
-    
+
     countersList.innerHTML = counters.map(counter => `
         <div class="counter-card" style="border-left: 3px solid ${counter.color}">
             <div class="counter-header">
@@ -3011,7 +3119,7 @@ function updateCounterValue(id, amount) {
 function resetCounter(id) {
     const counter = counters.find(c => c.id === id);
     if (!counter) return;
-    
+
     if (confirm(`Resetar "${counter.name}" para 0?`)) {
         socket.emit('counter:reset', { id });
     }
@@ -3020,7 +3128,7 @@ function resetCounter(id) {
 function deleteCounter(id) {
     const counter = counters.find(c => c.id === id);
     if (!counter) return;
-    
+
     if (confirm(`Deletar contador "${counter.name}"?`)) {
         socket.emit('counter:delete', { id });
     }
@@ -3029,7 +3137,7 @@ function deleteCounter(id) {
 function renameCounter(id) {
     const counter = counters.find(c => c.id === id);
     if (!counter) return;
-    
+
     const newName = prompt('Novo nome:', counter.name);
     if (newName && newName.trim()) {
         socket.emit('counter:rename', { id, name: newName.trim() });
@@ -3047,7 +3155,7 @@ window.renameCounter = renameCounter;
 
 function getTimeAgo(date) {
     const seconds = Math.floor((new Date() - date) / 1000);
-    
+
     if (seconds < 60) return 'agora mesmo';
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m atr�s`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h atr�s`;
@@ -3071,15 +3179,15 @@ function closeWhatsApp() {
 async function initializeWhatsAppIfNeeded() {
     try {
         const response = await fetch('/api/whatsapp/init', { method: 'POST' });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
-        
+
         console.log('WhatsApp init result:', result);
-        
+
         // Aguardar um pouco e depois tentar carregar os chats
         setTimeout(() => {
             fetchWhatsAppChats();
@@ -3098,11 +3206,11 @@ async function initializeWhatsAppIfNeeded() {
 async function fetchWhatsAppChats() {
     const contactsContainer = document.getElementById('whatsapp-contacts');
     contactsContainer.innerHTML = '<div class="whatsapp-loading">Carregando conversas...</div>';
-    
+
     try {
         const response = await fetch('/api/whatsapp/chats');
         const result = await response.json();
-        
+
         if (result.success) {
             renderWhatsAppChats(result.data);
             // Se n�o estiver pronto (erro 503), vai cair no catch ou retornar erro
@@ -3122,17 +3230,17 @@ async function fetchWhatsAppChats() {
 function renderWhatsAppChats(chats) {
     const container = document.getElementById('whatsapp-contacts');
     container.innerHTML = '';
-    
+
     // Esconder QR code se carregou chats
     document.getElementById('whatsapp-qr-container').style.display = 'none';
-    
+
     chats.forEach(chat => {
         const div = document.createElement('div');
         div.className = `whatsapp-contact ${currentChatId === chat.id ? 'active' : ''}`;
         div.onclick = () => selectWhatsAppChat(chat);
-        
+
         const lastMsgTime = chat.lastMessage ? new Date(chat.lastMessage.timestamp * 1000).toLocaleDateString() : '';
-        
+
         div.innerHTML = `
             <div class="whatsapp-contact-avatar"></div>
             <div class="whatsapp-contact-info">
@@ -3141,31 +3249,31 @@ function renderWhatsAppChats(chats) {
             </div>
             <div style="font-size: 0.7rem; color: var(--text-muted);">${lastMsgTime}</div>
         `;
-        
+
         container.appendChild(div);
     });
 }
 
 async function selectWhatsAppChat(chat) {
     currentChatId = chat.id;
-    
+
     // Atualizar UI da lista
     document.querySelectorAll('.whatsapp-contact').forEach(el => el.classList.remove('active'));
     // (Idealmente re-renderizar ou achar o elemento clicado, mas simplificando)
-    
+
     // Atualizar header do chat
     document.getElementById('current-chat-name').innerText = chat.name || 'Desconhecido';
     document.getElementById('whatsapp-intro').style.display = 'none';
     document.getElementById('whatsapp-chat-main').style.display = 'flex';
-    
+
     // Carregar mensagens
     const messagesContainer = document.getElementById('whatsapp-messages');
     messagesContainer.innerHTML = '<div class="whatsapp-loading">Carregando mensagens...</div>';
-    
+
     try {
         const response = await fetch(`/api/whatsapp/messages/${chat.id}`);
         const result = await response.json();
-        
+
         if (result.success) {
             renderWhatsAppMessages(result.data);
         }
@@ -3177,11 +3285,11 @@ async function selectWhatsAppChat(chat) {
 function renderWhatsAppMessages(messages) {
     const container = document.getElementById('whatsapp-messages');
     container.innerHTML = '';
-    
+
     messages.forEach(msg => {
         appendWhatsAppMessage(msg);
     });
-    
+
     // Scroll para o final
     container.scrollTop = container.scrollHeight;
 }
@@ -3190,26 +3298,26 @@ function appendWhatsAppMessage(msg) {
     const container = document.getElementById('whatsapp-messages');
     const div = document.createElement('div');
     div.className = `whatsapp-msg ${msg.fromMe ? 'sent' : 'received'}`;
-    
+
     const time = new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
+
     div.innerHTML = `
         ${msg.body}
         <div class="whatsapp-msg-time">${time}</div>
     `;
-    
+
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 }
 
 async function sendWhatsAppMessage() {
     if (!currentChatId) return;
-    
+
     const input = document.getElementById('whatsapp-input');
     const message = input.value.trim();
-    
+
     if (!message) return;
-    
+
     try {
         const response = await fetch('/api/whatsapp/send', {
             method: 'POST',
@@ -3219,9 +3327,9 @@ async function sendWhatsAppMessage() {
                 message: message
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             input.value = '';
             // Adicionar mensagem localmente (otimista)
@@ -3304,7 +3412,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 closeLightbox();
             }
         });
-        
+
         // Fechar com ESC
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -3345,12 +3453,12 @@ function selectTheme(themeName) {
     }
     localStorage.setItem(THEME_KEY, themeName);
     currentTheme = themeName;
-    
+
     // Atualiza visual dos cards de tema
     document.querySelectorAll('.theme-option').forEach(option => {
         option.classList.toggle('active', option.dataset.theme === themeName);
     });
-    
+
     closeThemeModal();
 }
 
@@ -3377,27 +3485,27 @@ async function handleClearDatabase() {
         alert('❌ Você precisa estar logado para limpar o banco de dados.');
         return;
     }
-    
+
     const confirmed = confirm('⚠️ ATENÇÃO!\n\nVocê está prestes a LIMPAR TODO O BANCO DE DADOS.\n\nTodas as mensagens serão apagadas permanentemente.\n\nDeseja continuar?');
-    
+
     if (!confirmed) return;
-    
+
     const confirmPhrase = prompt('Para confirmar, digite: LIMPAR TUDO');
-    
+
     if (confirmPhrase !== 'LIMPAR TUDO') {
         alert('❌ Frase de confirmação incorreta. Operação cancelada.');
         return;
     }
-    
+
     try {
         const response = await fetch('/api/admin/clear-database', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: authToken, confirmPhrase })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             alert('✅ Banco de dados limpo com sucesso!\n\nTodas as mensagens foram removidas.');
             // Limpa a interface local
@@ -3417,3 +3525,4 @@ async function handleClearDatabase() {
 }
 
 window.handleClearDatabase = handleClearDatabase;
+
