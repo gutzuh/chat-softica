@@ -505,8 +505,12 @@ io.on('connection', (socket) => {
     // Envia lista de usuários online para o novo usuário
     socket.emit('users:list', Array.from(users.values()));
 
-    // Envia histórico de mensagens ao novo usuário
-    socket.emit('messages:history', messages);
+    // Envia histórico de mensagens ao novo usuário (filtrado para privacidade)
+    const filteredHistory = messages.filter(msg => {
+      if (msg.type === 'public') return true;
+      return msg.username === username || msg.recipientId === username;
+    });
+    socket.emit('messages:history', filteredHistory);
 
     // Envia status de admin
     socket.emit('user:admin-status', { isAdmin: userIsAdmin });
@@ -687,22 +691,45 @@ io.on('connection', (socket) => {
     const sender = users.get(socket.id);
 
     if (sender) {
+      // data.recipientId no frontend agora é o username
+      const recipientUsername = data.recipientId;
+
       const message = {
         id: Date.now(),
         userId: socket.id,
         username: sender.username,
+        avatar: sender.avatar,
         text: data.text,
         timestamp: new Date(),
-        type: 'private'
+        type: 'private',
+        recipientId: recipientUsername,
+        senderId: socket.id
       };
 
-      // Envia para o destinatário
-      io.to(data.recipientId).emit('message:received', message);
+      // Envia para o destinatário (todos os seus sockets)
+      for (const [sId, u] of users.entries()) {
+        if (u.username === recipientUsername) {
+          io.to(sId).emit('message:received', message);
+        }
+      }
 
-      // Envia de volta para o remetente (para mostrar na interface)
-      socket.emit('message:received', message);
+      // Envia de volta para o remetente (todos os seus sockets)
+      for (const [sId, u] of users.entries()) {
+        if (u.username === sender.username) {
+          io.to(sId).emit('message:received', message);
+        }
+      }
 
-      // console.log(`Mensagem privada de ${sender.username} para ${data.recipientId}`);
+      // Adiciona à lista de mensagens em memória para persistência
+      messages.push(message);
+
+      // Salvar no banco de dados SQLite
+      if (USE_DATABASE) {
+        database.saveMessage(message);
+      }
+
+      // Salva no arquivo (se não usar banco)
+      saveMessages();
     }
   });
 

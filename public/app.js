@@ -18,6 +18,8 @@ const THEME_KEY = 'chatTheme';
 // Estado para resposta/edição
 let replyingTo = null;
 let editingMessage = null;
+let activeChat = 'global'; // 'global' ou username do destinatário
+let allMessages = [];
 
 // ===== Emoji Parser (Global Scope) =====
 let emojiMap = null;
@@ -620,6 +622,9 @@ function connectToServer() {
     // Conectar ao servidor Socket.io
     socket = io();
 
+    // Configurar listeners do WhatsApp
+    setupWhatsAppSocketListeners();
+
     // Event: Conexão estabelecida
     socket.on('connect', () => {
         console.log('Conectado ao servidor');
@@ -655,9 +660,8 @@ function connectToServer() {
             welcomeMsg.remove();
         }
 
-        // Adicionar mensagens do histórico
-        history.forEach(msg => addMessage(msg, false));
-        scrollToBottom();
+        allMessages = history;
+        renderFilteredMessages();
     });
 
     // Event: Status de admin
@@ -728,18 +732,23 @@ function connectToServer() {
 
     // Event: Mensagem recebida
     socket.on('message:received', (message) => {
-        // Log para arquivos
-        if (message.text && message.text.startsWith('FILE:')) {
-            const fileParts = message.text.split('|');
-            console.log(`📎 Arquivo recebido de ${message.username}: ${fileParts[1] || 'unknown'}`);
-        } else if (message.file) {
-            console.log(`📎 Arquivo (novo formato) recebido de ${message.username}: ${message.file.name}`);
+        allMessages.push(message);
+        const savedUsername = localStorage.getItem(USER_STORAGE_KEY);
+
+        // Se for para o chat ativo, renderiza
+        if (shouldShowInChat(message)) {
+            addMessageUI(message);
+        } else {
+            // Notificar se for privada e não estiver vendo
+            if (message.type === 'private') {
+                const otherParty = message.username === savedUsername ? message.recipientId : message.username;
+                if (activeChat !== otherParty) {
+                    updateSidebarBadge(otherParty);
+                }
+            }
         }
 
-        addMessage(message);
-
         // Notificação apenas para mensagens de outros usuários
-        const savedUsername = localStorage.getItem('chat-username');
         if (message.username !== savedUsername) {
             // Verificar se a mensagem menciona o usuário
             const mentionsMe = message.text && message.text.includes(`@${savedUsername}`);
@@ -869,7 +878,6 @@ function handleSendMessage(e) {
 
     // Se estiver respondendo, incluir referência
     if (replyingTo) {
-        // console.log('🔵 [REPLY] Enviando com reply ATIVO:', { id: replyingTo.id, username: replyingTo.username });
         messageData.replyTo = {
             id: replyingTo.id,
             username: replyingTo.username,
@@ -878,8 +886,7 @@ function handleSendMessage(e) {
     }
 
     // Enviar mensagem
-    console.log('📤 [SEND] Enviando messageData:', messageData);
-    socket.emit('message:send', messageData);
+    sendMessageToServer(messageData);
 
     // Cancelar reply DEPOIS de enviar
     if (replyingTo) {
@@ -892,6 +899,15 @@ function handleSendMessage(e) {
     // Notificar que parou de digitar
     socket.emit('user:stop-typing');
     typingIndicator.textContent = '';
+}
+
+function sendMessageToServer(data) {
+    if (activeChat === 'global') {
+        socket.emit('message:send', data);
+    } else {
+        data.recipientId = activeChat;
+        socket.emit('message:private', data);
+    }
 }
 
 function handleClearChat() {
@@ -967,21 +983,19 @@ function hideCommandSuggestions() {
     }
 }
 
-function addMessage(message, autoScroll = true) {
+function addMessageUI(message, autoScroll = true) {
     // Remover mensagem de boas-vindas se existir
     const welcomeMsg = messagesContainer.querySelector('.welcome-message');
     if (welcomeMsg) {
         welcomeMsg.remove();
     }
 
-    // Usar username como identificador persistente (não muda entre reconexões)
-    const savedUsername = localStorage.getItem('chat-username');
+    const savedUsername = localStorage.getItem(USER_STORAGE_KEY);
     const isOwnMessage = message.username === savedUsername || message.userId === socket.id;
 
     const messageEl = document.createElement('div');
     messageEl.className = `message`;
     messageEl.dataset.messageId = message.id;
-    messageEl.dataset.username = message.username;
 
     const time = formatTime(new Date(message.timestamp));
 
@@ -1178,6 +1192,12 @@ function addMessage(message, autoScroll = true) {
 }
 
 function addSystemMessage(text, id = null) {
+    // Apenas mostrar se estiver no chat global
+    if (activeChat !== 'global') {
+        console.log('System message (hidden):', text);
+        return null;
+    }
+
     const messageEl = document.createElement('div');
     messageEl.className = 'system-message';
     messageEl.textContent = text;
@@ -1521,10 +1541,21 @@ function scrollToBottom() {
 function renderUsersList() {
     userCount.textContent = users.length;
 
-    usersList.innerHTML = users
-        .filter(user => user.id !== socket.id) // Não mostrar o próprio usuário
+    // Item do Chat Geral
+    let html = `
+        <div class="user-item ${activeChat === 'global' ? 'active' : ''}" onclick="switchChat('global')">
+            <div class="user-avatar" style="background: var(--primary-gradient);">📢</div>
+            <div class="user-info">
+                <span class="username">Chat Geral</span>
+                <span class="status">Todos os usuários</span>
+            </div>
+        </div>
+    `;
+
+    html += users
+        .filter(user => user.id !== socket.id)
         .map(user => `
-            <div class="user-item" data-user-id="${user.id}">
+            <div class="user-item ${activeChat === user.username ? 'active' : ''}" data-user-id="${user.id}" onclick="switchChat('${user.username}')">
                 <div class="user-avatar" style="${user.avatar ? `background-image: url(${user.avatar}); background-size: cover; background-position: center;` : ''}">
                     ${!user.avatar ? user.username.charAt(0).toUpperCase() : ''}
                 </div>
@@ -1532,10 +1563,75 @@ function renderUsersList() {
                     <span class="username">${escapeHtml(user.username)}${user.isAdmin ? ' 👑' : ''}</span>
                     <span class="status">Online</span>
                 </div>
+                <div id="badge-${user.username}" class="unread-badge" style="display: none;">!</div>
                 <div class="status-indicator"></div>
             </div>
         `)
         .join('');
+
+    usersList.innerHTML = html;
+}
+
+function switchChat(chatId) {
+    activeChat = chatId;
+
+    // Atualizar título do header
+    const chatTitle = document.querySelector('.chat-title h1');
+    if (chatId === 'global') {
+        chatTitle.innerText = 'Chat Geral';
+    } else {
+        chatTitle.innerText = `Particular: ${chatId}`;
+
+        // Limpar badge se existir
+        const badge = document.getElementById(`badge-${chatId}`);
+        if (badge) badge.style.display = 'none';
+    }
+
+    renderUsersList();
+    renderFilteredMessages();
+}
+
+function renderFilteredMessages() {
+    messagesContainer.innerHTML = '';
+    allMessages.forEach(msg => {
+        if (shouldShowInChat(msg)) {
+            addMessageUI(msg, false);
+        }
+    });
+    scrollToBottom();
+}
+
+function shouldShowInChat(message) {
+    const savedUsername = localStorage.getItem(USER_STORAGE_KEY);
+    // Debug temporário
+    const isRelevant = message.type === 'private';
+    if (isRelevant) {
+        console.log(`🔍 Checking private msg: From=${message.username}, To=${message.recipientId}, Active=${activeChat}, Me=${savedUsername}`);
+    }
+
+    if (activeChat === 'global') {
+        return message.type === 'public';
+    } else {
+        if (message.type !== 'private') return false;
+        // Pertence ao chat se:
+        // Eu mandei para o activeChat (recipientId === activeChat)
+        // OU o activeChat mandou para mim (username === activeChat)
+        const matches = (message.username === savedUsername && message.recipientId === activeChat) ||
+            (message.username === activeChat && message.recipientId === savedUsername);
+
+        if (isRelevant && !matches) {
+            console.log('❌ Private message rejected for current view');
+        } else if (isRelevant && matches) {
+            console.log('✅ Private message accepted for current view');
+        }
+
+        return matches;
+    }
+}
+
+function updateSidebarBadge(username) {
+    const badge = document.getElementById(`badge-${username}`);
+    if (badge) badge.style.display = 'flex';
 }
 
 // ===== Funções Utilitárias =====
@@ -2045,7 +2141,7 @@ function deleteCustomSticker(index) {
 }
 
 function sendCustomSticker(imageData) {
-    socket.emit('message:send', { text: `STICKER_CUSTOM:${imageData}` });
+    sendMessageToServer({ text: `STICKER_CUSTOM:${imageData}` });
     closeStickerPicker();
     messageInput.focus();
 }
@@ -2086,7 +2182,7 @@ function closeStickerPicker() {
 
 function sendSticker(sticker) {
     // Enviar figurinha como mensagem especial
-    socket.emit('message:send', { text: `STICKER:${sticker}` });
+    sendMessageToServer({ text: `STICKER:${sticker}` });
 
     // Fechar painel
     closeStickerPicker();
@@ -2363,7 +2459,7 @@ function confirmSendImage() {
                 return;
             }
 
-            socket.emit('message:send', { text: `IMAGE:${pendingImageBase64}` });
+            sendMessageToServer({ text: `IMAGE:${pendingImageBase64}` });
 
             // Enviar legenda como mensagem separada se existir
             if (caption) {
@@ -2518,7 +2614,7 @@ async function uploadFileInChunks(file, autoSend = true) {
                     throw new Error('Socket não conectado');
                 }
 
-                socket.emit('message:send', {
+                sendMessageToServer({
                     text: `FILE:${result.url}|${fileName}|${fileSize}`
                 });
                 addSystemMessage(`✅ Arquivo enviado: ${fileName}`);
@@ -3346,23 +3442,27 @@ async function sendWhatsAppMessage() {
 }
 
 // Eventos Socket.io do WhatsApp
-socket.on('whatsapp:qr', (url) => {
-    // MOVIDO PARA DENTRO DE connectToServer()
-});
+function setupWhatsAppSocketListeners() {
+    if (!socket) return;
 
-socket.on('whatsapp:ready', () => {
-    // MOVIDO PARA DENTRO DE connectToServer()
-});
+    socket.on('whatsapp:qr', (url) => {
+        // MOVIDO PARA DENTRO DE connectToServer()
+    });
 
-socket.on('whatsapp:message', (msg) => {
-    // Se estiver no chat aberto, adicionar mensagem
-    if (currentChatId === msg.chatId) {
-        appendWhatsAppMessage(msg);
-    } else {
-        // Notifica��o de nova mensagem
-        showNotification('WhatsApp', `Nova mensagem de ${msg.chatName}`, '');
-    }
-});
+    socket.on('whatsapp:ready', () => {
+        // MOVIDO PARA DENTRO DE connectToServer()
+    });
+
+    socket.on('whatsapp:message', (msg) => {
+        // Se estiver no chat aberto, adicionar mensagem
+        if (currentChatId === msg.chatId) {
+            appendWhatsAppMessage(msg);
+        } else {
+            // Notifica��o de nova mensagem
+            showNotification('WhatsApp', `Nova mensagem de ${msg.chatName}`, '');
+        }
+    });
+}
 
 // Input enter para enviar
 const whatsappInputEl = document.getElementById('whatsapp-input');

@@ -20,6 +20,7 @@ function initializeDatabase() {
             text TEXT NOT NULL,
             timestamp TEXT NOT NULL,
             type TEXT DEFAULT 'public',
+            recipientId TEXT,
             replyToId TEXT,
             replyToUsername TEXT,
             replyToText TEXT,
@@ -27,6 +28,14 @@ function initializeDatabase() {
             createdAt INTEGER DEFAULT (strftime('%s', 'now'))
         )
     `);
+
+    // Migração: Adicionar recipientId se não existir
+    try {
+        db.exec("ALTER TABLE messages ADD COLUMN recipientId TEXT");
+        console.log('✅ Column recipientId added to messages table');
+    } catch (e) {
+        // Provavelmente a coluna já existe
+    }
 
     // Tabela de contadores (sincronizados)
     db.exec(`
@@ -68,8 +77,8 @@ initializeDatabase();
 // ===== MENSAGENS =====
 const messagesStmt = {
     insert: db.prepare(`
-        INSERT INTO messages (id, userId, username, avatar, text, timestamp, type, replyToId, replyToUsername, replyToText, edited)
-        VALUES (@id, @userId, @username, @avatar, @text, @timestamp, @type, @replyToId, @replyToUsername, @replyToText, @edited)
+        INSERT INTO messages (id, userId, username, avatar, text, timestamp, type, recipientId, replyToId, replyToUsername, replyToText, edited)
+        VALUES (@id, @userId, @username, @avatar, @text, @timestamp, @type, @recipientId, @replyToId, @replyToUsername, @replyToText, @edited)
     `),
     getAll: db.prepare('SELECT * FROM messages ORDER BY timestamp ASC'),
     getLast: db.prepare('SELECT * FROM messages ORDER BY timestamp DESC LIMIT ?'),
@@ -87,18 +96,18 @@ function saveMessage(message) {
     try {
         // Debug: mostrar o que está sendo salvo
         // console.log('Salvando mensagem:', JSON.stringify(message, null, 2));
-        
+
         // Tratar replyTo - pode ser objeto ou null/undefined
         let replyToId = null;
         let replyToUsername = null;
         let replyToText = null;
-        
+
         if (message.replyTo && typeof message.replyTo === 'object') {
             replyToId = message.replyTo.id ? String(message.replyTo.id) : null;
             replyToUsername = message.replyTo.username ? String(message.replyTo.username) : null;
             replyToText = message.replyTo.text ? String(message.replyTo.text) : null;
         }
-        
+
         // Converter timestamp - pode ser Date, string ou número
         let timestamp;
         if (message.timestamp instanceof Date) {
@@ -110,7 +119,7 @@ function saveMessage(message) {
         } else {
             timestamp = new Date().toISOString();
         }
-        
+
         // Garantir que todos os valores são tipos primitivos válidos
         const params = {
             id: String(message.id || Date.now()),
@@ -120,12 +129,13 @@ function saveMessage(message) {
             text: String(message.text || ''),
             timestamp: timestamp,
             type: String(message.type || 'public'),
+            recipientId: message.recipientId ? String(message.recipientId) : null,
             replyToId: replyToId,
             replyToUsername: replyToUsername,
             replyToText: replyToText,
             edited: message.edited ? 1 : 0
         };
-        
+
         messagesStmt.insert.run(params);
         return true;
     } catch (error) {
@@ -151,6 +161,7 @@ function getAllMessages() {
             text: row.text,
             timestamp: row.timestamp,
             type: row.type,
+            recipientId: row.recipientId,
             replyTo: row.replyToId ? {
                 id: row.replyToId,
                 username: row.replyToUsername,
@@ -175,6 +186,7 @@ function getLastMessages(limit = 100) {
             text: row.text,
             timestamp: row.timestamp,
             type: row.type,
+            recipientId: row.recipientId,
             replyTo: row.replyToId ? {
                 id: row.replyToId,
                 username: row.replyToUsername,
@@ -322,7 +334,7 @@ function migrateFromJson(jsonMessages) {
             }
         }
     });
-    
+
     try {
         insertMany(jsonMessages);
         console.log(`✅ Migrated ${jsonMessages.length} messages to SQLite`);
