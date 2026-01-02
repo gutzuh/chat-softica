@@ -212,8 +212,9 @@ function updateMessage(id, newText) {
 
 function deleteMessage(id) {
     try {
-        messagesStmt.delete.run(id);
-        return true;
+        const info = messagesStmt.delete.run(String(id));
+        // console.log(`🗑️ DB Delete: ${id} | Changes: ${info.changes}`);
+        return info.changes > 0;
     } catch (error) {
         console.error('Error deleting message:', error);
         return false;

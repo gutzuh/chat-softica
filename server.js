@@ -647,6 +647,11 @@ io.on('connection', (socket) => {
         message.edited = true;
         message.editedAt = new Date();
 
+        // Salvar no banco de dados SQLite
+        if (USE_DATABASE) {
+          database.updateMessage(messageId, newText);
+        }
+
         // Salvar e notificar
         saveMessages();
 
@@ -671,6 +676,11 @@ io.on('connection', (socket) => {
       // Limpa todas as mensagens
       messages = [];
 
+      // Limpar no banco de dados SQLite
+      if (USE_DATABASE) {
+        database.clearAllMessages();
+      }
+
       // Salva arquivo vazio
       saveMessages();
 
@@ -683,6 +693,41 @@ io.on('connection', (socket) => {
       // console.log(`💥 Chat limpo por ${user.username}`);
     } else {
       socket.emit('server:error', { message: 'Apenas administradores podem limpar o chat' });
+    }
+  });
+
+  // Evento: Deletar mensagem
+  socket.on('message:delete', (data) => {
+    const user = users.get(socket.id);
+    const { messageId } = data;
+
+    if (user) {
+      const messageIndex = messages.findIndex(m => m.id === messageId);
+
+      if (messageIndex === -1) return; // Mensagem não encontrada
+
+      const message = messages[messageIndex];
+
+      // Verificar permissão (Admin ou Dono da mensagem)
+      if (user.isAdmin || message.username === user.username) {
+        // Remover da memória
+        messages.splice(messageIndex, 1);
+
+        // Remover do banco de dados SQLite
+        if (USE_DATABASE) {
+          database.deleteMessage(messageId);
+        }
+
+        // Salvar arquivo
+        saveMessages();
+
+        // Notificar clientes
+        io.emit('message:deleted', { messageId });
+
+        // console.log(`🗑️ Mensagem ${messageId} deletada por ${user.username}`);
+      } else {
+        socket.emit('server:error', { message: 'Sem permissão para deletar esta mensagem' });
+      }
     }
   });
 

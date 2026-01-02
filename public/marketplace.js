@@ -274,17 +274,28 @@ const MOCK_ADDONS = [
     {
         id: 'addon-custom-bg',
         name: 'Fundo Personalizado Pro',
-        description: 'V3.0: Studio de customização com desfoque, brilho e cores de filtro.',
+        description: 'V3.1: Studio com "Salvar como Tema" e melhor limpeza.',
         author: 'Softica',
-        version: '3.0',
+        version: '3.1',
         type: 'script',
         js: `
             (function() {
+                // Prevent duplicate injection
                 if(document.getElementById('bg-studio-container')) return;
 
                 const defaultSettings = { blur: 0, brightness: 0.6, color: '#000000', intensity: 0.45 };
                 let settings = JSON.parse(localStorage.getItem('custom-bg-settings')) || defaultSettings;
                 let currentUrl = localStorage.getItem('custom-bg-image-url') || '';
+                const styleId = 'custom-bg-styles';
+
+                // Cleanup function attached to window for external access if needed
+                window._cleanupStudio = () => {
+                    const style = document.getElementById(styleId);
+                    if (style) style.remove();
+                    const container = document.getElementById('bg-studio-container');
+                    if (container) container.remove();
+                    delete window._cleanupStudio;
+                };
 
                 const fileInput = document.createElement('input');
                 fileInput.type = 'file';
@@ -292,25 +303,17 @@ const MOCK_ADDONS = [
                 fileInput.style.display = 'none';
                 document.body.appendChild(fileInput);
                 
-                function applyStyles() {
-                    if (!currentUrl) return;
-                    const styleId = 'custom-bg-styles';
-                    let styleEl = document.getElementById(styleId);
-                    if (!styleEl) {
-                        styleEl = document.createElement('style');
-                        styleEl.id = styleId;
-                        document.head.appendChild(styleEl);
-                    }
-
-                    const hexToRgb = (hex) => {
-                        var result = /^#?([a-f\\\\d]{2})([a-f\\\\d]{2})([a-f\\\\d]{2})$/i.exec(hex);
+                function generateCSS() {
+                     if (!currentUrl) return '';
+                     const hexToRgb = (hex) => {
+                        var result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
                         return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : {r:0,g:0,b:0};
                     };
 
                     const rgb = hexToRgb(settings.color);
                     const colorOverlay = 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + settings.intensity + ')';
 
-                    styleEl.innerHTML = 'body::after { ' +
+                    return 'body::after { ' +
                         'content: ""; ' +
                         'position: fixed; ' +
                         'top: -30px; left: -30px; right: -30px; bottom: -30px; ' +
@@ -326,13 +329,21 @@ const MOCK_ADDONS = [
                         '.chat-container, .screen, .chat-main, .messages-container { background: transparent !important; } ' +
                         '.sidebar, .addons-sidebar { background-color: rgba(5,5,7,0.85) !important; backdrop-filter: blur(25px) !important; border-color: rgba(255,255,255,0.03) !important; } ' +
                         '.chat-header, .chat-footer { background-color: rgba(10,10,15,0.6) !important; backdrop-filter: blur(15px) !important; border-bottom: 1px solid rgba(255,255,255,0.03) !important; } ' +
-                        /* Mensagens unificadas: todas escuras e legíveis, sem distinção de cor para o usuário */
                         '.message-text { backdrop-filter: blur(16px) !important; background-color: rgba(15, 15, 20, 0.85) !important; color: #ffffff !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important; padding: 0.8rem 1rem !important; font-weight: 500 !important; } ' +
                         '.message.own .message-text, .message.own-message .message-text { background-color: rgba(15, 15, 20, 0.85) !important; background-image: none !important; color: #ffffff !important; border: 1px solid rgba(255,255,255,0.1) !important; } ' +
-                        /* Custom range styles for the studio */
                         '.studio-range { -webkit-appearance: none; width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; margin: 10px 0; } ' +
                         '.studio-range::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #ef4444; border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); transition: 0.2s; } ' +
                         '.studio-range::-webkit-slider-thumb:hover { transform: scale(1.2); background: #ff6b6b; }';
+                }
+
+                function applyStyles() {
+                    let styleEl = document.getElementById(styleId);
+                    if (!styleEl) {
+                        styleEl = document.createElement('style');
+                        styleEl.id = styleId;
+                        document.head.appendChild(styleEl);
+                    }
+                    styleEl.innerHTML = generateCSS();
                 }
 
                 fileInput.onchange = async (e) => {
@@ -372,6 +383,35 @@ const MOCK_ADDONS = [
                     wrap.appendChild(input);
                     return wrap;
                 }
+                
+                function saveAsTheme() {
+                    if (!currentUrl) return alert('Escolha uma imagem de fundo primeiro!');
+                    const name = prompt('Nome do Tema:', 'Meu Tema Personalizado');
+                    if (!name) return;
+                    
+                    const css = generateCSS();
+                    const newTheme = {
+                        id: 'theme-custom-' + Date.now(),
+                        name: name,
+                        type: 'theme',
+                        version: '1.0',
+                        enabled: true,
+                        css: css,
+                        author: 'User'
+                    };
+                    
+                    if (window.addonManager) {
+                        window.addonManager.installAddon(newTheme);
+                        // Disable Studio to see result
+                        // window.addonManager.toggleAddon('addon-custom-bg', false); 
+                        // Actually, let's just alert
+                        if(confirm('Tema salvo! Deseja desativar o Studio para usar o novo tema?')) {
+                             window.addonManager.toggleAddon('addon-custom-bg', false);
+                             // Enable the new theme (it is enabled by default installAddon but check conflicts)
+                             window.selectTheme(newTheme.id);
+                        }
+                    }
+                }
 
                 function injectStudio() {
                     const sections = Array.from(document.querySelectorAll('.addon-section'));
@@ -385,16 +425,28 @@ const MOCK_ADDONS = [
                         title.innerText = '🏙️ Studio de Fundo';
                         title.style.cssText = 'font-weight: 700; margin-bottom: 15px; color: #fff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;';
                         container.appendChild(title);
+                        
                         const btn = document.createElement('button');
                         btn.className = 'btn-premium';
                         btn.style.cssText = 'width: 100%; margin-bottom: 5px;';
                         btn.innerHTML = '📸 Escolher Imagem';
                         btn.onclick = () => fileInput.click();
                         container.appendChild(btn);
+                        
+                        // Controls
                         container.appendChild(createControl('Desfoque', 'range', 0, 20, 1, 'blur', 'px'));
                         container.appendChild(createControl('Brilho', 'range', 0, 2, 0.1, 'brightness'));
                         container.appendChild(createControl('Cor do Filtro', 'color', 0, 0, 0, 'color'));
                         container.appendChild(createControl('Intensidade', 'range', 0, 1, 0.05, 'intensity'));
+                        
+                        // Save Button
+                        const saveBtn = document.createElement('button');
+                        saveBtn.className = 'btn-premium';
+                        saveBtn.style.cssText = 'width: 100%; margin-top: 15px; background: linear-gradient(135deg, #10b981, #059669);';
+                        saveBtn.innerHTML = '💾 Salvar como Tema';
+                        saveBtn.onclick = saveAsTheme;
+                        container.appendChild(saveBtn);
+                        
                         settingsSection.appendChild(container);
                         return true;
                     }
@@ -419,6 +471,22 @@ class AddonManager {
     }
 
     init() {
+        // Auto-update addons from Store (MOCK_ADDONS)
+        let updated = false;
+        this.installedAddons = this.installedAddons.map(installed => {
+            const fromStore = MOCK_ADDONS.find(m => m.id === installed.id);
+            if (fromStore && fromStore.version > installed.version) {
+                console.log(`🆙 Updating Addon ${installed.name} from v${installed.version} to v${fromStore.version}`);
+                updated = true;
+                return { ...fromStore, enabled: installed.enabled }; // Keep enabled state, update code
+            }
+            return installed;
+        });
+
+        if (updated) {
+            this.saveInstalled();
+        }
+
         // Apply installed addons on boot
         this.installedAddons.forEach(addon => {
             if (addon.enabled) this.applyAddon(addon);
@@ -574,10 +642,33 @@ class AddonManager {
     }
 
     installAddon(addon) {
+        // Se for um tema, desabilitar outros temas antes de instalar/ativar este
+        if (addon.type === 'theme' || addon.css) {
+            this.installedAddons.forEach(a => {
+                if ((a.type === 'theme' || a.css) && a.enabled) {
+                    a.enabled = false;
+                    this.removeAddonEffect(a);
+                }
+            });
+        }
+
         this.installedAddons.push(addon);
         this.saveInstalled();
         this.applyAddon(addon);
+
+        // Se o tema instalado for ativado, atualizar o sistema de temas global
+        if (addon.enabled && (addon.type === 'theme' || addon.css)) {
+            if (window.selectTheme) {
+                // Sincronizar com o app.js sem disparar recursão
+                localStorage.setItem('chat_current_theme', addon.id);
+                if (window.currentTheme) window.currentTheme = addon.id;
+            }
+        }
+
         alert(`Addon ${addon.name} instalado!`);
+
+        // Atualizar lista de temas se o modal estiver aberto (ou para refletir mudanças)
+        if (window.renderThemeOptions) window.renderThemeOptions();
     }
 
     removeAddon(id) {
@@ -587,16 +678,35 @@ class AddonManager {
             this.installedAddons = this.installedAddons.filter(a => a.id !== id);
             this.saveInstalled();
             this.render();
+            if (window.renderThemeOptions) window.renderThemeOptions();
         }
     }
 
     toggleAddon(id, enabled) {
         const addon = this.installedAddons.find(a => a.id === id);
         if (addon) {
+            // Exclusividade para temas
+            if (enabled && (addon.type === 'theme' || addon.css)) {
+                this.installedAddons.forEach(a => {
+                    if (a.id !== id && (a.type === 'theme' || a.css) && a.enabled) {
+                        a.enabled = false;
+                        this.removeAddonEffect(a);
+                    }
+                });
+
+                // Atualizar o THEME_KEY no localStorage para o seletor saber qual está ativo
+                localStorage.setItem('chat_current_theme', id);
+                if (window.currentTheme) window.currentTheme = id;
+            }
+
             addon.enabled = enabled;
             this.saveInstalled();
             if (enabled) this.applyAddon(addon);
             else this.removeAddonEffect(addon);
+
+            // Re-renderizar painel de addons e temas
+            this.render();
+            if (window.renderThemeOptions) window.renderThemeOptions();
         }
     }
 

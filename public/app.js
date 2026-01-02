@@ -782,6 +782,19 @@ function connectToServer() {
         }
     });
 
+    // Event: Mensagem deletada
+    socket.on('message:deleted', (data) => {
+        const messageEl = document.querySelector(`[data-message-id="${data.messageId}"]`);
+        if (messageEl) {
+            messageEl.style.transition = 'all 0.3s ease';
+            messageEl.style.opacity = '0';
+            messageEl.style.transform = 'scale(0.9)';
+            setTimeout(() => {
+                messageEl.remove();
+            }, 300);
+        }
+    });
+
     // Event: Usuário digitando
     socket.on('user:typing', (data) => {
         typingIndicator.textContent = `${data.username} está digitando...`;
@@ -1323,6 +1336,19 @@ function showMessageMenu(x, y, message, messageEl, isImage, isImageUrl, isFile, 
         </div>`;
     }
 
+    // Deletar (se for própria mensagem ou admin)
+    // Verificar se é admin (precisamos ter essa info disponível globalmente ou no user storage)
+    // Assumindo que temos currentUser ou users array
+    const currentUser = users.find(u => u.id === socket.id);
+    const isAdmin = currentUser && currentUser.isAdmin;
+
+    if (isOwnMessage || isAdmin) {
+        menuHtml += `<div class="menu-item delete" data-action="delete" style="color: #ff4444;">
+            <span class="menu-icon">🗑️</span>
+            <span>Deletar</span>
+        </div>`;
+    }
+
     menuHtml += `<div class="menu-separator"></div>`;
 
     // Copiar texto
@@ -1396,6 +1422,12 @@ function handleMenuAction(action, message, messageEl, isImage, isImageUrl, isFil
 
         case 'edit':
             startEditingMessage(message, messageEl);
+            break;
+
+        case 'delete':
+            if (confirm('Tem certeza que deseja deletar esta mensagem?')) {
+                socket.emit('message:delete', { messageId: message.id });
+            }
             break;
 
         case 'copy':
@@ -1721,9 +1753,58 @@ function showNotification(title, body, icon = '💬') {
 
 // ===== Atalhos de Teclado =====
 document.addEventListener('keydown', (e) => {
-    // ESC para sair (apenas se estiver no chat)
-    if (e.key === 'Escape' && chatScreen.classList.contains('active')) {
-        handleLogout();
+    if (e.key === 'Escape') {
+        // Prioridade 1: Fechar Lightbox
+        const lightbox = document.getElementById('lightbox');
+        if (lightbox && lightbox.classList.contains('active')) {
+            // Já tem handler próprio, mas podemos garantir aqui
+            closeLightbox();
+            return;
+        }
+
+        // Prioridade 2: Fechar Preview de Imagem
+        const imagePreview = document.getElementById('image-preview-modal');
+        if (imagePreview && imagePreview.classList.contains('visible')) {
+            // Já tem handler próprio
+            hideImagePreview();
+            return;
+        }
+
+        // Prioridade 3: Fechar Modals (Marketplace, Theme, etc)
+        const themeModal = document.getElementById('theme-modal');
+        if (themeModal && themeModal.style.display !== 'none') {
+            closeThemeModal();
+            return;
+        }
+
+        const marketplaceModal = document.getElementById('marketplace-modal');
+        if (marketplaceModal && marketplaceModal.style.display !== 'none') {
+            closeMarketplaceModal();
+            return;
+        }
+
+        // Prioridade 4: Fechar Sidebars (Addons)
+        const addonsSidebar = document.getElementById('addons-sidebar');
+        if (addonsSidebar && addonsSidebar.classList.contains('active')) {
+            addonsSidebar.classList.remove('active');
+            return;
+        }
+
+        // Prioridade 5: Cancelar Reply ou Edição
+        if (replyingTo) {
+            cancelReply();
+            return;
+        }
+
+        if (editingMessage) {
+            cancelEdit();
+            return;
+        }
+
+        // Prioridade 6: Sair (apenas se não houver outras ações)
+        // if (chatScreen.classList.contains('active')) {
+        //    handleLogout();
+        // }
     }
 });
 
@@ -2181,8 +2262,15 @@ function closeStickerPicker() {
 }
 
 function sendSticker(sticker) {
-    // Enviar figurinha como mensagem especial
-    sendMessageToServer({ text: `STICKER:${sticker}` });
+    // Verificar se existe versão PNG no emojiMap
+    if (emojiMap && emojiMap[sticker]) {
+        const imageUrl = `/emojis/${emojiMap[sticker]}`;
+        // Enviar como figurinha customizada (imagem)
+        sendMessageToServer({ text: `STICKER_CUSTOM:${imageUrl}` });
+    } else {
+        // Fallback: Enviar figurinha como texto
+        sendMessageToServer({ text: `STICKER:${sticker}` });
+    }
 
     // Fechar painel
     closeStickerPicker();
@@ -2483,11 +2571,28 @@ function confirmSendImage() {
     }
 }
 
-function processImageFile(file) {
+async function processImageFile(file) {
     // Validar tipo
     if (!file.type.startsWith('image/')) {
         alert('Por favor, selecione apenas arquivos de imagem.');
         return;
+    }
+
+    // Comprimir imagem se for muito grande (> 1MB)
+    // Manter GIF original para não perder animação
+    if (file.size > 1024 * 1024 && file.type !== 'image/gif') {
+        try {
+            console.log(`🖼️ Comprimindo imagem: ${formatBytes(file.size)}`);
+            const compressedUrl = await compressImage(file);
+            console.log(`✅ Imagem comprimida! Novo tamanho estimado.`);
+
+            // Mostrar preview da imagem comprimida
+            showImagePreview(file, compressedUrl); // compressedUrl já é base64
+            return;
+        } catch (err) {
+            console.error('Erro na compressão:', err);
+            // Fallback para original em caso de erro
+        }
     }
 
     const maxSize = 10 * 1024 * 1024; // 10MB max total
@@ -2497,7 +2602,7 @@ function processImageFile(file) {
         return;
     }
 
-    // Ler a imagem e mostrar preview
+    // Ler a imagem e mostrar preview (caso não tenha sido comprimida)
     const reader = new FileReader();
     reader.onload = (event) => {
         const base64Image = event.target.result;
@@ -2509,6 +2614,60 @@ function processImageFile(file) {
     };
 
     reader.readAsDataURL(file);
+}
+
+// Função auxiliar para compressão de imagem
+function compressImage(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+
+                // Redimensionar se for muito grande (max 1920px)
+                const MAX_DIMENSION = 1920;
+                if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+                    if (width > height) {
+                        height = Math.round(height * (MAX_DIMENSION / width));
+                        width = MAX_DIMENSION;
+                    } else {
+                        width = Math.round(width * (MAX_DIMENSION / height));
+                        height = MAX_DIMENSION;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Comprimir para JPEG com qualidade 0.8
+                // Se for PNG com transparência, o canvas preenche com preto no JPEG,
+                // então forçamos PNG apenas se realmente necessário, mas jpeg é melhor para compressão de fotos.
+                // Aqui vamos tentar manter o tipo original se for PNG, mas com redução.
+                let mimeType = file.type;
+                if (mimeType === 'image/png') {
+                    // PNG não suporta quality param no toDataURL padrão de todos browsers, 
+                    // mas podemos tentar image/jpeg se o usuário não se importar com transparência.
+                    // Vamos manter PNG mas redimensionado já ajuda.
+                } else {
+                    mimeType = 'image/jpeg';
+                }
+
+                // Qualidade 0.7 para JPEG
+                const dataUrl = canvas.toDataURL(mimeType, 0.7);
+                resolve(dataUrl);
+            };
+            img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+    });
 }
 
 function processFileUpload(file) {
@@ -3527,15 +3686,81 @@ window.openLightbox = openLightbox;
 window.closeLightbox = closeLightbox;
 
 /* ===== Sistema de Temas ===== */
+/* ===== Sistema de Temas ===== */
 function openThemeModal() {
     const themeModal = document.getElementById('theme-modal');
     if (themeModal) {
+        renderThemeOptions();
         themeModal.style.display = 'flex';
-        // Atualiza visual dos cards de tema
-        document.querySelectorAll('.theme-option').forEach(option => {
-            option.classList.toggle('active', option.dataset.theme === currentTheme);
-        });
     }
+}
+
+function renderThemeOptions() {
+    const container = document.querySelector('.theme-options');
+    if (!container) return;
+
+    // Temas padrão
+    const themes = [
+        { id: 'default', name: 'Vermelho & Preto', class: 'theme-preview-default' },
+        { id: 'whatsapp', name: 'WhatsApp', class: 'theme-preview-whatsapp' },
+        { id: 'light', name: 'Claro', class: 'theme-preview-light' },
+        { id: 'matrix', name: 'Matrix', class: 'theme-preview-matrix' },
+        { id: 'solarized', name: 'Solarized Dark', class: 'theme-preview-solarized' },
+        { id: 'neon', name: 'Neon Party', class: 'theme-preview-neon' }
+    ];
+
+    // Adicionar temas instalados
+    let installed = [];
+    if (window.addonManager && window.addonManager.installedAddons) {
+        installed = window.addonManager.installedAddons.filter(a => a.type === 'theme');
+    } else {
+        try {
+            installed = JSON.parse(localStorage.getItem('chat_installed_addons') || '[]').filter(a => a.type === 'theme');
+        } catch (e) { }
+    }
+
+    installed.forEach(theme => {
+        let styleStr = '';
+        if (theme.css) {
+            const extract = (varName) => {
+                const match = theme.css.match(new RegExp(`${varName}:\\s*([^;]+)`));
+                return match ? match[1] : null;
+            };
+
+            const bg = extract('--bg-primary');
+            const header = extract('--bg-secondary') || extract('--primary-gradient');
+            const sent = extract('--primary-gradient') || extract('--success');
+            const received = extract('--bg-secondary');
+
+            if (bg) styleStr += `--preview-bg: ${bg};`;
+            if (header) styleStr += `--preview-header: ${header};`;
+            if (sent) styleStr += `--preview-sent: ${sent};`;
+            if (received) styleStr += `--preview-received: ${received};`;
+        }
+
+        themes.push({
+            id: theme.id,
+            name: theme.name,
+            class: 'theme-preview-custom',
+            isCustom: true,
+            style: styleStr
+        });
+    });
+
+    container.innerHTML = themes.map(theme => `
+        <div class="theme-option ${currentTheme === theme.id ? 'active' : ''}" 
+             onclick="selectTheme('${theme.id}')" 
+             data-theme="${theme.id}">
+            <div class="theme-preview ${theme.class}" style="${theme.style || ''}">
+                <div class="theme-preview-header"></div>
+                <div class="theme-preview-body">
+                    <div class="theme-preview-msg sent"></div>
+                    <div class="theme-preview-msg received"></div>
+                </div>
+            </div>
+            <span class="theme-name">${theme.name}</span>
+        </div>
+    `).join('');
 }
 
 function closeThemeModal() {
@@ -3553,6 +3778,29 @@ function selectTheme(themeName) {
     }
     localStorage.setItem(THEME_KEY, themeName);
     currentTheme = themeName;
+
+    // Efeito visual de troca
+    document.body.classList.add('theme-switching');
+    setTimeout(() => document.body.classList.remove('theme-switching'), 600);
+
+    // Gerenciar Addons de Tema (Exclusividade)
+    if (window.addonManager) {
+        const installedThemes = window.addonManager.installedAddons.filter(a => a.type === 'theme');
+
+        // Desabilitar todos os temas instalados primeiro
+        installedThemes.forEach(t => {
+            // Se o tema atual selecionado NÃO for este addon, desabilita
+            if (t.id !== themeName && t.enabled) {
+                window.addonManager.toggleAddon(t.id, false);
+            }
+        });
+
+        // Habilitar o tema selecionado se for um addon
+        const target = installedThemes.find(t => t.id === themeName);
+        if (target && !target.enabled) {
+            window.addonManager.toggleAddon(themeName, true);
+        }
+    }
 
     // Atualiza visual dos cards de tema
     document.querySelectorAll('.theme-option').forEach(option => {
