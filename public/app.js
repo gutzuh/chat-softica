@@ -9,11 +9,20 @@ let currentAvatar = null; // base64 data URL
 let authToken = null; // JWT token
 let currentTheme = 'default'; // Tema atual
 
-// Constantes de armazenamento - SIMPLES E DIRETO
-const TOKEN_KEY = 'chatAuthToken';
-const USER_STORAGE_KEY = 'chatUsername';
-const AVATAR_STORAGE_KEY = 'chatUserAvatar';
-const THEME_KEY = 'chatTheme';
+// Expor estado globalmente para scripts auxiliares
+window.socket = socket;
+window.currentUser = currentUser;
+window.currentAvatar = currentAvatar;
+
+// Constantes de armazenamento - TORNAR GLOBAIS PARA OUTROS SCRIPTS
+window.TOKEN_KEY = 'chatAuthToken';
+window.USER_STORAGE_KEY = 'chatUsername';
+window.AVATAR_STORAGE_KEY = 'chatUserAvatar';
+window.THEME_KEY = 'chatTheme';
+const TOKEN_KEY = window.TOKEN_KEY;
+const USER_STORAGE_KEY = window.USER_STORAGE_KEY;
+const AVATAR_STORAGE_KEY = window.AVATAR_STORAGE_KEY;
+const THEME_KEY = window.THEME_KEY;
 
 // Estado para resposta/edição
 let replyingTo = null;
@@ -91,6 +100,9 @@ const newCounterBtn = document.getElementById('new-counter-btn');
 const countersList = document.getElementById('counters-list');
 const themeBtn = document.getElementById('theme-btn');
 const clearDbBtn = document.getElementById('clear-db-btn');
+const menuToggle = document.getElementById('menu-toggle');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+const sidebar = document.querySelector('.sidebar');
 
 // Elementos do avatar na tela de login
 const loginAvatar = document.getElementById('login-avatar');
@@ -160,6 +172,21 @@ document.addEventListener('DOMContentLoaded', () => {
     addonsBtn.addEventListener('click', toggleAddonsPanel);
     closeAddonsBtn.addEventListener('click', toggleAddonsPanel);
     newCounterBtn.addEventListener('click', openNewCounterModal);
+
+    // Menu Mobile
+    if (menuToggle) {
+        menuToggle.addEventListener('click', () => {
+            if (sidebar) sidebar.classList.toggle('open');
+            if (sidebarOverlay) sidebarOverlay.classList.toggle('active');
+        });
+    }
+
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', () => {
+            if (sidebar) sidebar.classList.remove('open');
+            if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+        });
+    }
 
     // Inicializar contadores
     // Inicializar contadores será feito após conexão do socket
@@ -341,51 +368,14 @@ function handleLogin(e) {
 }
 
 // Login simples e direto
-function performLogin(username) {
-    if (!username || username.length < 2) return;
 
-    currentUser = username;
-
-    // Salvar no localStorage
-    localStorage.setItem(USER_STORAGE_KEY, username);
-    if (currentAvatar) {
-        localStorage.setItem(AVATAR_STORAGE_KEY, currentAvatar);
-    }
-
-    // Solicitar permissão para notificações
-    requestNotificationPermission();
-
-    // Conectar ao servidor
-    connectToServer();
-
-    // Atualizar UI
-    currentUsername.textContent = username;
-    currentUserInitial.textContent = username.charAt(0).toUpperCase();
-    if (currentAvatar) {
-        updateCurrentAvatarUI(currentAvatar);
-    }
-
-    // Mostrar botão de limpar BD apenas para admin
-    const clearDbBtn = document.getElementById('clear-db-btn');
-    if (clearDbBtn) {
-        clearDbBtn.style.display = (username.toLowerCase() === 'admin') ? 'flex' : 'none';
-    }
-
-    console.log(`✅ Login realizado: ${username}`);
-    console.log(`📸 Avatar: ${currentAvatar ? 'Sim' : 'Não'}`);
-
-    // Trocar telas
-    loginScreen.classList.remove('active');
-    chatScreen.classList.add('active');
-
-    setTimeout(() => messageInput.focus(), 300);
-}
 
 // Centralized login so we can reuse (auto-login, manual login)
 async function performLogin(username) {
     if (!username || username.length < 2) return;
 
     currentUser = username;
+    window.currentUser = currentUser; // Atualizar global
 
     // Gerar token JWT
     await loginWithToken(username, currentAvatar);
@@ -424,69 +414,9 @@ async function performLogin(username) {
     setTimeout(() => messageInput.focus(), 300);
 }
 
-// Avatar handlers
-function handleAvatarSelect(file) {
-    if (!file) return;
-    const maxSize = 1 * 1024 * 1024; // 500KB
-    if (file.size > maxSize) {
-        alert('Avatar muito grande. Máx 500KB.');
-        return;
-    }
+// (Funções handleAvatarSelect e handleLoginAvatarSelect movidas para avatar-preview.js)
 
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-        const data = ev.target.result;
 
-        // Salvar no localStorage com a chave correta
-        try {
-            localStorage.setItem(AVATAR_STORAGE_KEY, data);
-            console.log('✅ Avatar salvo no localStorage');
-        } catch (e) {
-            console.warn('Erro ao salvar avatar:', e);
-        }
-
-        currentAvatar = data;
-        updateCurrentAvatarUI(data);
-        updateLoginAvatarUI(data);
-
-        // Notificar servidor do novo avatar
-        if (socket && socket.connected && currentUser) {
-            socket.emit('user:login', { username: currentUser, avatar: currentAvatar });
-        }
-
-        console.log('✅ Avatar atualizado e sincronizado');
-    };
-    reader.readAsDataURL(file);
-}
-
-// Handler para avatar selecionado na tela de LOGIN
-function handleLoginAvatarSelect(file) {
-    if (!file) return;
-    const maxSize = 1 * 1024 * 1024; // 500KB
-    if (file.size > maxSize) {
-        alert('Avatar muito grande. Máx 500KB.');
-        return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        const data = ev.target.result;
-
-        // Salvar no localStorage com a chave correta
-        try {
-            localStorage.setItem(AVATAR_STORAGE_KEY, data);
-            console.log('✅ Avatar salvo no localStorage');
-        } catch (e) {
-            console.warn('Erro ao salvar avatar:', e);
-        }
-
-        currentAvatar = data;
-        updateLoginAvatarUI(data);
-        updateCurrentAvatarUI(data); // Sincronizar com tela de chat
-        console.log('✅ Avatar salvo na tela de login e sincronizado');
-    };
-    reader.readAsDataURL(file);
-}
 
 function updateCurrentAvatarUI(dataUrl) {
     const avatarEl = document.getElementById('current-user-avatar');
@@ -621,6 +551,7 @@ function extractColorsFromLogo() {
 function connectToServer() {
     // Conectar ao servidor Socket.io
     socket = io();
+    window.socket = socket; // Expor globalmente
 
     // Configurar listeners do WhatsApp
     setupWhatsAppSocketListeners();
@@ -1570,6 +1501,14 @@ function scrollToBottom() {
 }
 
 // ===== Funções de Usuários =====
+// Expor utilitários globalmente
+window.escapeHtml = (text) => {
+    if (!text) return '';
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+};
+const escapeHtml = window.escapeHtml;
+
 function renderUsersList() {
     userCount.textContent = users.length;
 
@@ -1617,6 +1556,14 @@ function switchChat(chatId) {
         // Limpar badge se existir
         const badge = document.getElementById(`badge-${chatId}`);
         if (badge) badge.style.display = 'none';
+    }
+
+    // Fechar sidebar no celular ao trocar de chat
+    if (window.innerWidth <= 768) {
+        const sidebar = document.querySelector('.sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        if (sidebar) sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('active');
     }
 
     renderUsersList();
@@ -1673,11 +1620,7 @@ function formatTime(date) {
     return `${hours}:${minutes}`;
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
+// function escapeHtml removida (já definida globalmente acima)
 
 // ===== Sistema de Notificações =====
 function requestNotificationPermission() {
@@ -2188,10 +2131,10 @@ function handleAddCustomSticker() {
         const file = e.target.files[0];
         if (!file) return;
 
-        // Validar tamanho (3MB)
-        const maxSize = 3 * 1024 * 1024;
+        // Validar tamanho (10MB para figurinhas)
+        const maxSize = 10 * 1024 * 1024;
         if (file.size > maxSize) {
-            alert('Figurinha muito grande! Tamanho máximo: 3MB');
+            alert('Figurinha muito grande! Tamanho máximo: 10MB');
             return;
         }
 
@@ -2578,29 +2521,9 @@ async function processImageFile(file) {
         return;
     }
 
-    // Comprimir imagem se for muito grande (> 1MB)
-    // Manter GIF original para não perder animação
-    if (file.size > 1024 * 1024 && file.type !== 'image/gif') {
-        try {
-            console.log(`🖼️ Comprimindo imagem: ${formatBytes(file.size)}`);
-            const compressedUrl = await compressImage(file);
-            console.log(`✅ Imagem comprimida! Novo tamanho estimado.`);
+    // Sem compressão automática (enviar original sempre)
 
-            // Mostrar preview da imagem comprimida
-            showImagePreview(file, compressedUrl); // compressedUrl já é base64
-            return;
-        } catch (err) {
-            console.error('Erro na compressão:', err);
-            // Fallback para original em caso de erro
-        }
-    }
-
-    const maxSize = 10 * 1024 * 1024; // 10MB max total
-
-    if (file.size > maxSize) {
-        alert('Imagem muito grande! Tamanho máximo: 10MB');
-        return;
-    }
+    // Sem limite de tamanho conforme solicitado (upload via chunk se for grande)
 
     // Ler a imagem e mostrar preview (caso não tenha sido comprimida)
     const reader = new FileReader();
@@ -2686,6 +2609,7 @@ function processFileUpload(file) {
 }
 
 // ===== Upload de Arquivos em Chunks =====
+window.uploadFileInChunks = uploadFileInChunks;
 async function uploadFileInChunks(file, autoSend = true) {
     const chunkSize = 5 * 1024 * 1024; // 5MB por chunk
     const fileName = file.name;
@@ -3294,6 +3218,16 @@ function setupCounterListeners() {
 function toggleAddonsPanel() {
     addonsSidebar.classList.toggle('open');
     addonsBtn.classList.toggle('active');
+
+    // Suporte para overlay no celular
+    if (window.innerWidth <= 768) {
+        const overlay = document.getElementById('sidebar-overlay');
+        if (addonsSidebar.classList.contains('open')) {
+            overlay.classList.add('active');
+        } else {
+            overlay.classList.remove('active');
+        }
+    }
 }
 
 function openNewCounterModal() {

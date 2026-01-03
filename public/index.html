@@ -8,8 +8,7 @@
     <meta name="description" content="Sistema de chat em tempo real para comunicação em rede local">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=5">
+    <link rel="stylesheet" href="styles.css?v=6">
 </head>
 
 <body>
@@ -60,6 +59,7 @@
     <!-- Tela Principal do Chat -->
     <div id="chat-screen" class="screen">
         <div class="chat-container">
+            <div id="sidebar-overlay" class="sidebar-overlay"></div>
             <!-- Sidebar com usuários online -->
             <aside class="sidebar">
                 <div class="sidebar-header">
@@ -96,6 +96,12 @@
             <!-- Área principal do chat -->
             <main class="chat-main">
                 <header class="chat-header">
+                    <button id="menu-toggle" class="btn-icon-glass menu-toggle" title="Menu">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" />
+                        </svg>
+                    </button>
                     <div class="chat-title">
                         <h1>Chat Geral</h1>
                         <p id="typing-indicator" class="typing-indicator"></p>
@@ -430,9 +436,9 @@
     <!-- Scripts -->
     <script src="/socket.io/socket.io.js"></script>
     <script src="commands.js?v=2"></script>
-    <script src="avatar-preview.js?v=1"></script>
-    <script src="marketplace.js?v=1"></script>
-    <script src="app.js?v=5"></script>
+    <script src="avatar-preview.js?v=3"></script>
+    <script src="marketplace.js?v=2"></script>
+    <script src="app.js?v=6"></script>
 </body>
 
 </html>

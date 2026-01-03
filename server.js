@@ -540,7 +540,7 @@ io.on('connection', (socket) => {
     if (user) {
       // Handle IMAGE:base64 payload specially to avoid storing huge base64 in messages array
       try {
-        const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // 3MB limit server-side
+        const MAX_IMAGE_BYTES = 50 * 1024 * 1024; // 50MB limit server-side
         if (typeof data.text === 'string' && data.text.startsWith('IMAGE:')) {
           const payload = data.text.split('IMAGE:')[1] || '';
           // compute approximate bytes
